@@ -1,0 +1,13 @@
+.venv/
+.env
+__pycache__/
+.pytest_cache/
+*.egg-info/
+supabase/.temp/
+# Local blob store: evidence, not source.
+snapshots/
+
+# Build and tool output
+dist/
+.import_linter_cache/
+.ruff_cache/

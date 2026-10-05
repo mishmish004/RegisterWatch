@@ -1,0 +1,12 @@
+.venv/
+.env
+.env.*
+!.env.example
+snapshots/
+tests/
+supabase/
+etl/
+__pycache__/
+.pytest_cache/
+.import_linter_cache/
+*.egg-info/

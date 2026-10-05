@@ -1,0 +1,65 @@
+[project]
+name = "registerwatch"
+version = "0.2.0"
+description = "Gambling regulators' public registers: daily scrape, one Postgres schema per register, API and CLI per jurisdiction."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "httpx>=0.27",
+  "psycopg[binary,pool]>=3.1",
+  "boto3>=1.34",
+  "pydantic-settings>=2.2",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "lxml>=5",
+  "openpyxl>=3.1",
+  "pypdf>=4",
+]
+
+# `uv sync` installs this group by default; `uv sync --no-dev` (the Dockerfile)
+# leaves it out.
+[dependency-groups]
+dev = ["pytest>=8", "import-linter>=2"]
+
+[project.scripts]
+registerwatch = "registerwatch.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# Shipped inside the wheel: `registerwatch migrate` and the Slovak certificate
+# chain must work from an installed package, not only from a source checkout.
+[tool.setuptools.package-data]
+registerwatch = ["migrations/*.sql", "registers/certs/*.pem"]
+
+# Parsers are pure: bytes in, rows out. A register module that reaches for the
+# network, the database or the blob store has stopped being re-runnable against
+# stored evidence and testable against a fixture.
+[tool.importlinter]
+root_package = "registerwatch"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Register parsers are pure"
+type = "forbidden"
+source_modules = ["registerwatch.registers"]
+forbidden_modules = [
+  "registerwatch.fetch",
+  "registerwatch.db",
+  "registerwatch.storage",
+  "registerwatch.ingest",
+  "registerwatch.api",
+  "httpx",
+  "psycopg",
+  "boto3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.uv]
+package = true
