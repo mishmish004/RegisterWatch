@@ -66,3 +66,18 @@ def test_info_runs_without_a_database(capsys):
     assert cli.main(["ch"]) == 0
     out = capsys.readouterr().out
     assert "ch_esbk" in out and "ch_gespa" in out and "blocked_domains" in out
+
+
+def test_model_commands_parse():
+    p = cli.build_parser()
+    a = p.parse_args(["domain", "https://www.bet365.com/", "-j", "gb,ch", "--all", "-f", "json"])
+    assert a.fn is cli.cmd_domain and a.all and a.jurisdiction == "gb,ch"
+    assert p.parse_args(["operators", "betway"]).fn is cli.cmd_operators
+    assert p.parse_args(["operator", "betway-ltd"]).operator_id == "betway-ltd"
+    a = p.parse_args(["licences", "-j", "gb", "--status", "suspended,revoked", "--product", "casino", "--all"])
+    assert a.fn is cli.cmd_licences and a.status == "suspended,revoked" and a.all
+    a = p.parse_args(["events", "--since", "2026-10-01", "-t", "licence.status_changed", "--domain", "bet365.com"])
+    assert a.fn is cli.cmd_events and a.since.isoformat() == "2026-10-01T00:00:00+00:00"
+    assert p.parse_args(["gb", "profile"]).fn is cli.cmd_jur_profile
+    assert p.parse_args(["build"]).fn is cli.cmd_build and p.parse_args(["coverage"]).fn is cli.cmd_coverage
+    assert p.parse_args(["ingest", "gb", "--no-build"]).no_build

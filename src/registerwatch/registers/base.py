@@ -150,7 +150,7 @@ class Register:
             raise ValueError(f"slug {self.slug!r} is not a safe schema name")
         if not self.parts and self.plan is None:
             raise ValueError(f"{self.slug}: needs parts or a plan")
-        if self.slug in {"public", "cron", "net", "vault", "auth", "storage", "extensions"}:
+        if self.slug in {"public", "cron", "net", "vault", "auth", "storage", "extensions", "model"}:
             raise ValueError(f"{self.slug}: reserved schema name")
 
     def resolve_parts(self, fetch: Fetch) -> list[Part]:

@@ -5,6 +5,12 @@ websites they may run, and which domains are blocked. There are 21 registers
 across 18 jurisdictions, and each gets its own Postgres schema. Rows are kept
 with first-seen and removed markers, so what changed on any day is a query.
 
+On top of the registers sits **the model** ([docs/MODEL.md](docs/MODEL.md)). It
+joins all registers into parties, licences, brands, websites and blocklist
+entries, with a change feed and a per-jurisdiction answer for any website that
+is never a bare yes/no. It is the product described in the R&D plan
+([docs/research-plan.md](docs/research-plan.md)), built from the data so far.
+
 [REGULATORS.md](REGULATORS.md) lists what is scraped. It also lists every
 regulator that was checked and is not scraped, and why.
 
@@ -34,9 +40,13 @@ Then once per database:
 
 ```bash
 cp .env.example .env                        # DATABASE_URL, USER_AGENT, INGEST_TOKEN
-registerwatch migrate                       # public tables + one schema per register
-registerwatch ingest                        # every register; the daily job
+registerwatch migrate                       # public tables, the model schema, one schema per register
+registerwatch ingest                        # every register, then rebuilds the model; the daily job
 ```
+
+Upgrading a database that already holds snapshots: run `registerwatch migrate`
+then `registerwatch build`. Until a build has run, `/status` reports the model
+as behind the registers.
 
 ## CLI
 
@@ -59,8 +69,26 @@ registerwatch search betway -j gb,de,se              # across jurisdictions
 registerwatch check-domain bet365.com                # licensed where, blocked where
 registerwatch ingest gb de pl_mf                     # codes and slugs mix; default all
 registerwatch status [-j ch]                         # exit 1 if any register is stale
-registerwatch serve                                  # the API on :8000 ($PORT)
+registerwatch serve                                  # the API and lookup page on :8000 ($PORT)
 registerwatch migrate | registers | ddl
+```
+
+The model answers across every register at once, with the evidence:
+
+```bash
+registerwatch domain bet365.com                      # a verdict per jurisdiction (--all for every one)
+registerwatch operators hillside                     # companies by name, trading name or website
+registerwatch operator hillside-europe-enc           # footprint, licences, websites, flags, history
+registerwatch licences -j gb,se --status suspended   # --product casino, -q, --all for removed ones
+registerwatch events --since 2026-10-01 -t licence.status_changed,block.added
+registerwatch gb profile                             # coverage, licence statuses, products, recent changes
+registerwatch coverage                               # per register: covers, freshness, data quality
+registerwatch build                                  # rebuild the model now (ingest does it itself)
+```
+
+```
+$ registerwatch domain bet365.com
+bet365.com: authorised in GB, SE; blocked in CH; look closer at US-NJ
 ```
 
 For example, against the production data on 5 Oct 2026:
@@ -139,12 +167,25 @@ Reads are open unless `READ_TOKEN` is set; operations need `INGEST_TOKEN`.
 | `GET /search?q=betway&jurisdiction=gb,de` | every table with a match, most matches first |
 | `GET /check/domain/{domain}` | `licensed_in`, `blocked_in` and each matching row; `www.` ignored, subdomains reported as `subdomain` |
 
+**The model** (same authentication). See [docs/MODEL.md](docs/MODEL.md). `GET /` serves a lookup page over these.
+
+| | |
+|---|---|
+| `GET /domains/{domain}` | a verdict per jurisdiction: `authorised`, `blocked`, `listed_not_operating`, `related_listed`, `previously_listed`, `not_listed`, `no_domain_data`… each with an explanation, caveats, confidence and the register rows behind it; plus the same name elsewhere and the host's history. A URL works too |
+| `GET /operators?q=hillside` | operators matching a company name, trading name or website |
+| `GET /operators/{operator_id}` | one operator across registers: footprint, licences, brands, websites, its websites on blocklists, flags, related operators, history |
+| `GET /licences?jurisdiction=gb&status=suspended&product=casino` | licences; `q` searches reference, type and holder; `current=false` for removed ones |
+| `GET /events?since=2026-10-01&type=licence.status_changed,block` | the change feed; `jurisdiction`, `operator`, `domain` filter it; defaults to the last 7 days |
+| `GET /jurisdictions/{code}/profile` | what the registers cover, counts, licensed products, recent changes |
+| `GET /coverage` | per register: coverage, cadence, freshness, data quality; the jurisdictions with no usable register |
+
 **Operations** — `Authorization: Bearer $INGEST_TOKEN`
 
 | | |
 |---|---|
 | `POST /ingest/{slug\|all}` | 202, runs in the background; 409 if a run is going. `?force` `?accept_count_delta` `?wait` |
 | `POST /jurisdictions/{code}/ingest` | the same for one jurisdiction's registers |
+| `POST /build` | rebuild the model now; 409 while an ingest runs. An ingest batch that recorded a complete snapshot rebuilds it anyway |
 | `GET /ingest/last` | the last batch this process finished |
 
 **Health** — open
@@ -152,7 +193,7 @@ Reads are open unless `READ_TOKEN` is set; operations need `INGEST_TOKEN`.
 | | |
 |---|---|
 | `GET /health` | liveness; touches nothing |
-| `GET /status` | per register: last attempt, last good snapshot, last verdict. **503** if any register has no good snapshot within `STALE_AFTER_H` (26h), or the database is unreachable — point an uptime monitor at it |
+| `GET /status` | per register: last attempt, last good snapshot, last verdict, and the model's last build. **503** if any register has no good snapshot within `STALE_AFTER_H` (26h), if the model trails the newest complete snapshot by more than an hour, or if the database is unreachable — point an uptime monitor at it |
 | `GET /registers` | every register with its schema, tables and columns |
 
 ## Daily schedule (Supabase)
@@ -227,3 +268,6 @@ Then:
 1. Add one line in `registers/__init__.py`.
 2. Add gzipped fixtures under `tests/fixtures/registers/<slug>/`.
 3. Run `uv run registerwatch ddl --write`.
+4. Write its projection in `src/registerwatch/model/projections.py` and its
+   coverage in `src/registerwatch/model/catalogue.py`; `tests/test_model.py`
+   fails until the two agree.

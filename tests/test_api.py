@@ -31,9 +31,11 @@ def client(monkeypatch):
         return [IngestResult(r.slug, 7, True, None, 1, 1, record_count=10, raw_hash=b"\x01") for r in registers]
 
     monkeypatch.setattr(api.engine, "ingest_many", fake_many)
+    builds: list[int] = []
+    monkeypatch.setattr(api, "_rebuild", lambda: builds.append(1) or {"ok": True, "build_id": len(builds)})
     api._last.clear()
     with TestClient(api.app) as c:
-        c.cfg, c.runs = cfg, runs
+        c.cfg, c.runs, c.builds = cfg, runs, builds
         yield c
     if api._running.locked():
         api._running.release()
@@ -68,6 +70,7 @@ def test_ingest_all_accepts_then_runs_every_register_in_the_background(client):
     assert client.runs == [{"slugs": sorted(REGISTRY), "force": True, "accept_count_delta": False}]
     last = client.get("/ingest/last", headers=AUTH).json()
     assert last["ok"] and last["complete"] == 21 and last["results"][0]["raw_hash"] == "01"
+    assert last["model"] == {"ok": True, "build_id": 1}  # the model follows a batch that completed
     assert not api._running.locked()
 
 
@@ -176,3 +179,86 @@ def test_read_token_when_configured(client, monkeypatch):
 def test_jurisdiction_ingest_runs_only_its_registers(client):
     r = client.post("/jurisdictions/ch/ingest?wait=true", headers=AUTH)
     assert r.status_code == 200 and client.runs[-1]["slugs"] == ["ch_esbk", "ch_gespa"]
+
+
+# --- the model --------------------------------------------------------------------------
+
+def _null_tx(monkeypatch):
+    monkeypatch.setattr(api, "tx", lambda: contextlib.nullcontext(None))
+
+
+def test_domain_routes_to_the_model_with_jurisdictions_and_a_url(client, monkeypatch):
+    _null_tx(monkeypatch)
+    seen = {}
+
+    def fake(conn, value, regs, *, today):
+        if value == "not a host":
+            raise ValueError("'not a host' is not a hostname")
+        seen.update(value=value, regs=[r.slug for r in regs])
+        return {"domain": value, "verdicts": []}
+
+    monkeypatch.setattr(api.intel, "domain", fake)
+    assert client.get("/domains/https://www.bet365.com/casino?jurisdiction=ch,gb").status_code == 200
+    assert seen == {"value": "https://www.bet365.com/casino", "regs": ["ch_esbk", "ch_gespa", "gb_ukgc"]}
+    assert client.get("/domains/not a host").status_code == 400
+    assert client.get("/domains/bet365.com?jurisdiction=zz").status_code == 404
+
+
+def test_operator_routes(client, monkeypatch):
+    _null_tx(monkeypatch)
+    monkeypatch.setattr(api.intel, "search_operators", lambda conn, q, regs, limit: {"q": q, "operators": []})
+
+    def fake_operator(conn, oid, regs, *, today):
+        if oid == "nobody":
+            raise KeyError("no operator 'nobody'")
+        return {"operator_id": oid}
+
+    monkeypatch.setattr(api.intel, "operator", fake_operator)
+    assert client.get("/operators?q=betway").json() == {"q": "betway", "operators": []}
+    assert client.get("/operators?q=b").status_code == 422          # too short to mean anything
+    assert client.get("/operators/betway-ltd").json() == {"operator_id": "betway-ltd"}
+    assert client.get("/operators/nobody").status_code == 404
+
+
+def test_events_default_to_the_last_week_and_split_types(client, monkeypatch):
+    _null_tx(monkeypatch)
+    seen = {}
+
+    def fake(conn, regs, **kw):
+        seen.update(kw)
+        return {"total": 0, "events": []}
+
+    monkeypatch.setattr(api.intel, "events", fake)
+    body = client.get("/events?type=licence.status_changed,block&operator=betway-ltd").json()
+    assert seen["types"] == ["licence.status_changed", "block"] and seen["operator_id"] == "betway-ltd"
+    assert timedelta(days=6) < datetime.now(timezone.utc) - seen["since"] < timedelta(days=8)
+    assert body["total"] == 0
+    client.get("/events?since=2026-10-01")
+    assert seen["since"] == datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+
+def test_build_needs_the_ingest_token_and_the_lock(client):
+    assert client.post("/build").status_code == 401
+    assert client.post("/build", headers=AUTH).json() == {"ok": True, "build_id": 1}
+    assert api._running.acquire(blocking=False)
+    try:
+        assert client.post("/build", headers=AUTH).status_code == 409
+    finally:
+        api._running.release()
+
+
+def test_status_is_503_when_the_model_trails_the_registers(client, monkeypatch):
+    fresh = datetime.now(timezone.utc) - timedelta(hours=3)
+    state = {"behind": True, "newest_snapshot_at": fresh, "build_id": 4, "built_at": fresh - timedelta(days=1)}
+    monkeypatch.setattr(api.model_repo, "freshness", lambda conn: dict(state))
+    r = _status_with(client, monkeypatch, lambda s: fresh)
+    assert r.status_code == 503 and r.json()["model"]["stale"] is True and r.json()["stale_registers"] == []
+    state["newest_snapshot_at"] = datetime.now(timezone.utc) - timedelta(minutes=5)   # a batch mid-run
+    assert _status_with(client, monkeypatch, lambda s: fresh).status_code == 200
+
+
+def test_the_lookup_page_is_served_with_a_strict_csp(client):
+    r = client.get("/")
+    assert r.status_code == 200 and "<title>RegisterWatch</title>" in r.text
+    assert "script-src 'self'" in r.headers["content-security-policy"]
+    assert client.get("/web/app.js").status_code == 200 and client.get("/web/app.css").status_code == 200

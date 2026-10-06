@@ -14,6 +14,7 @@ dependencies = [
   "lxml>=5",
   "openpyxl>=3.1",
   "pypdf>=4",
+  "publicsuffixlist>=1.0",
 ]
 
 # `uv sync` installs this group by default; `uv sync --no-dev` (the Dockerfile)
@@ -31,10 +32,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# Shipped inside the wheel: `registerwatch migrate` and the Slovak certificate
-# chain must work from an installed package, not only from a source checkout.
+# Shipped inside the wheel: `registerwatch migrate`, the Slovak certificate chain
+# and the lookup page must work from an installed package, not only from a
+# source checkout.
 [tool.setuptools.package-data]
-registerwatch = ["migrations/*.sql", "registers/certs/*.pem"]
+registerwatch = ["migrations/*.sql", "registers/certs/*.pem", "web/*"]
 
 # Parsers are pure: bytes in, rows out. A register module that reaches for the
 # network, the database or the blob store has stopped being re-runnable against
@@ -53,6 +55,25 @@ forbidden_modules = [
   "registerwatch.storage",
   "registerwatch.ingest",
   "registerwatch.api",
+  "httpx",
+  "psycopg",
+  "boto3",
+]
+
+# The model is derived from rows the same way: register rows in, facts, model
+# rows and events out. db/repos/model.py does the reading and writing.
+[[tool.importlinter.contracts]]
+name = "The model is pure"
+type = "forbidden"
+source_modules = ["registerwatch.model"]
+forbidden_modules = [
+  "registerwatch.fetch",
+  "registerwatch.db",
+  "registerwatch.storage",
+  "registerwatch.ingest",
+  "registerwatch.api",
+  "registerwatch.intel",
+  "registerwatch.query",
   "httpx",
   "psycopg",
   "boto3",

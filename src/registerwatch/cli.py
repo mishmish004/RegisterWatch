@@ -9,8 +9,19 @@ functions — a code path that only runs at 6am is a code path you never test.
   registerwatch gb ingest
   registerwatch search bet365 -j gb,de        across jurisdictions
   registerwatch check-domain bet365.com       licensed where, blocked where
-  registerwatch ingest [all | gb de | pl_mf]  the daily job
+  registerwatch ingest [all | gb de | pl_mf]  the daily job (rebuilds the model after)
   registerwatch status | migrate | ddl | serve
+
+The model — every register as one set of answers, with evidence:
+
+  registerwatch build                         rebuild it now
+  registerwatch domain bet365.com             a verdict per jurisdiction
+  registerwatch operators betway              find an operator
+  registerwatch operator betway-ltd           its footprint, licences, websites, flags, history
+  registerwatch licences -j gb --status suspended
+  registerwatch events --since 2026-10-01 -t licence.status_changed
+  registerwatch gb profile                    a jurisdiction's coverage, counts, recent changes
+  registerwatch coverage                      what each register covers, freshness, data quality
 """
 
 from __future__ import annotations
@@ -21,7 +32,7 @@ import json
 import logging
 import pathlib
 import sys
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from importlib.resources import files
 from typing import Any
 
@@ -148,7 +159,21 @@ def cmd_ingest(args: argparse.Namespace) -> int:
               + (f" [{tables}]" if tables else "") + (" unchanged" if r.unchanged else ""))
         if not r.complete:
             worst = 1
+    if any(r.complete for r in results) and not getattr(args, "no_build", False):
+        worst = max(worst, cmd_build(args))
     return worst
+
+
+def cmd_build(_: argparse.Namespace) -> int:
+    from registerwatch.db.engine import tx
+    from registerwatch.db.repos import model as model_repo
+    from registerwatch.registers import all_registers
+
+    with tx() as conn:
+        res = model_repo.rebuild(conn, all_registers())
+    rows = " ".join(f"{k}={v}" for k, v in res["rows"].items())
+    print(f"model       build={res['build_id']} {rows} ({res['seconds']}s)")
+    return 0
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -207,6 +232,191 @@ def cmd_check_domain(args: argparse.Namespace) -> int:
     _emit([{"jurisdiction": m["jurisdiction"], "register": m["register"], "kind": m["kind"], "match": m["match"],
             "row": ", ".join(f"{k}={v}" for k, v in m["row"].items() if v and k not in ("first_seen_at", "last_seen_at"))}
            for m in res["matches"]], "table", width=90)
+    return 0
+
+
+def _today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _dump(obj: Any) -> None:
+    print(json.dumps(obj, default=str, ensure_ascii=False, indent=2))
+
+
+def cmd_domain(args: argparse.Namespace) -> int:
+    from registerwatch import intel
+    from registerwatch.db.engine import tx
+
+    with tx() as conn:
+        res = intel.domain(conn, args.domain, _registers_for(args.jurisdiction), today=_today())
+    if args.format == "json":
+        _dump(res)
+        return 0
+    print(f"{res['domain']}: authorised in {', '.join(res['authorised_in']) or 'none'}; "
+          f"blocked in {', '.join(res['blocked_in']) or 'none'}"
+          + (f"; look closer at {', '.join(res['attention'])}" if res["attention"] else ""))
+    shown = [v for v in res["verdicts"] if args.all or v["verdict"] not in ("not_listed", "not_blocked", "no_domain_data")]
+    if shown:
+        print()
+        _emit([{"jurisdiction": v["jurisdiction"], "verdict": v["label"], "confidence": v["confidence"],
+                "why": v["explanation"]} for v in shown], args.format, width=110)
+        for v in shown:
+            for c in v["caveats"]:
+                print(f"  {v['jurisdiction']}: {c}")
+    quiet = len(res["verdicts"]) - len(shown)
+    if quiet:
+        print(f"\n{quiet} jurisdiction(s) not listing, not blocking or without domain data; --all shows them")
+    if res["same_name_elsewhere"]:
+        print("\nSame name elsewhere (a lead, not a link the registers make):")
+        _emit([{"jurisdiction": x["jurisdiction"], "kind": x["kind"], "host": x["host"], "party": x["party"],
+                "current": x["current"]} for x in res["same_name_elsewhere"]], args.format)
+    return 0
+
+
+def cmd_operators(args: argparse.Namespace) -> int:
+    from registerwatch import intel
+    from registerwatch.db.engine import tx
+
+    with tx() as conn:
+        res = intel.search_operators(conn, args.query, _registers_for(args.jurisdiction), limit=args.limit)
+    if args.format == "json":
+        _dump(res)
+        return 0
+    if not res["operators"] and not res["brands_without_operator"]:
+        print(f"no operator matches {args.query!r}")
+        return 1
+    _emit([{"operator_id": o["operator_id"], "name": o["name"], "jurisdictions": o["jurisdictions"],
+            "matched_on": o["matched_on"], "current": o["current"]} for o in res["operators"]], args.format, width=60)
+    if res["brands_without_operator"]:
+        print("\nBrands listed without a company:")
+        _emit([{k: b[k] for k in ("name", "jurisdiction", "products", "current")}
+               for b in res["brands_without_operator"]], args.format)
+    return 0
+
+
+def cmd_operator(args: argparse.Namespace) -> int:
+    from registerwatch import intel
+    from registerwatch.db.engine import tx
+
+    with tx() as conn:
+        res = intel.operator(conn, args.operator_id, _registers_for(args.jurisdiction), today=_today())
+    if args.format == "json":
+        _dump(res)
+        return 0
+    print(f"{res['name']}  ({res['operator_id']})\n")
+    _emit([{"jurisdiction": f["jurisdiction"], "listed": f["listed"], "licences": f["licences"],
+            "products": f["products"], "websites": f["websites"]} for f in res["footprint"]], "table", width=60)
+    for f in res["flags"]:
+        print(f"  ! {f['text']}")
+    if res["websites"]:
+        print("\nWebsites:")
+        _emit([{"jurisdiction": d["jurisdiction"], "host": d["host"] or d["published"], "status": d["status"],
+                "current": d["current"]} for d in res["websites"]], "table")
+    if res["websites_blocked"]:
+        print("\nIts domains on blocklists:")
+        _emit([{"jurisdiction": b["jurisdiction"], "host": b["host"], "listed_on": b["listed_on"],
+                "current": b["current"]} for b in res["websites_blocked"]], "table")
+    if res["related_operators"]:
+        print("\nOther operators listing the same domains:")
+        _emit([{"operator_id": r["operator_id"], "name": r["name"], "shared": r["shared_domains"]}
+               for r in res["related_operators"]], "table", width=60)
+    if res["history"]:
+        print("\nHistory:")
+        for e in res["history"][:30]:
+            print(f"  {e['at']:%Y-%m-%d}  {e['summary']}" if e["at"] else f"  ?  {e['summary']}")
+    return 0
+
+
+def cmd_licences(args: argparse.Namespace) -> int:
+    from registerwatch import intel
+    from registerwatch.db.engine import tx
+
+    with tx() as conn:
+        res = intel.licences(conn, _registers_for(args.jurisdiction), status=args.status, product=args.product,
+                             q=args.q, current=None if args.all else True, limit=args.limit, offset=args.offset)
+    if args.format == "json":
+        _dump(res)
+        return 0
+    if args.format == "table":
+        print(f"{res['total']} licence(s); showing {len(res['licences'])} from {res['offset']}")
+    _emit([{"jurisdiction": x["jurisdiction"], "holder": x["party_name"], "reference": x["reference"],
+            "type": x["type"], "products": x["products"], "status": x["status_raw"] or x["status"],
+            "valid_to": x["valid_to"], "current": x["current"]} for x in res["licences"]], args.format)
+    return 0
+
+
+def cmd_events(args: argparse.Namespace) -> int:
+    from registerwatch import intel
+    from registerwatch.db.engine import tx
+
+    since = args.since or datetime.now(timezone.utc) - timedelta(days=7)
+    with tx() as conn:
+        res = intel.events(conn, _registers_for(args.jurisdiction), since=since, until=args.until,
+                           types=args.type.split(",") if args.type else None, operator_id=args.operator,
+                           host=args.domain, limit=args.limit)
+    if args.format == "json":
+        _dump(res)
+        return 0
+    if not res["events"]:
+        print(f"no changes since {since:%Y-%m-%d %H:%M} UTC")
+        return 0
+    if args.format == "table":
+        print(f"{res['total']} change(s) since {since:%Y-%m-%d}: "
+              + ", ".join(f"{k} {v}" for k, v in res["by_type"].items()) + "\n")
+    _emit([{"at": f"{e['at']:%Y-%m-%d %H:%M}" if e["at"] else None, "type": e["type"], "summary": e["summary"]}
+           for e in res["events"]], args.format, width=140)
+    return 0
+
+
+def cmd_coverage(args: argparse.Namespace) -> int:
+    from registerwatch import intel
+    from registerwatch.db.engine import tx
+
+    with tx() as conn:
+        res = intel.coverage(conn)
+    if args.format == "json":
+        _dump(res)
+        return 0
+    m = res["model"]
+    print(f"model build {m['build_id']} at {m['built_at']}" + (" — BEHIND the newest snapshot" if m["behind"] else ""))
+    print()
+    _emit([{"register": r["slug"], "jurisdiction": r["jurisdiction"], "covers": r["covers"],
+            "last_good": f"{r['last_good']:%Y-%m-%d %H:%M}" if r["last_good"] else None,
+            "parties": r["quality"].get("parties", {}).get("n"), "licences": r["quality"].get("licences", {}).get("n"),
+            "websites": r["quality"].get("websites", {}).get("n"),
+            "blocked": r["quality"].get("blocked_domains", {}).get("n")} for r in res["registers"]], args.format)
+    print(f"\nNo usable register ({len(res['not_covered'])}): "
+          + ", ".join(f"{u['code']} ({u['regulator']})" for u in res["not_covered"]))
+    return 0
+
+
+def cmd_jur_profile(args: argparse.Namespace) -> int:
+    from registerwatch import intel
+    from registerwatch.db.engine import tx
+
+    with tx() as conn:
+        res = intel.jurisdiction(conn, args.code, today=_today())
+    if args.format == "json":
+        _dump(res)
+        return 0
+    print(f"{res['code']} — {res['name']}")
+    for r in res["registers"]:
+        print(f"\n  {r['slug']}  {r['regulator']} — covers {', '.join(r['covers'])}"
+              + (f"; publishes {r['cadence']}" if r["cadence"] else ""))
+        print(f"  {r['scope']}")
+    c = res["counts"]
+    print(f"\n  parties {c['parties']}, brands {c['brands']}, websites {c['websites']}, "
+          f"blocked domains {c['blocked_domains']}")
+    if c["licences"]:
+        print("  licences: " + ", ".join(f"{k} {v}" for k, v in c["licences"].items()))
+    if res["products"]:
+        print("  products licensed: " + ", ".join(f"{k} {v}" for k, v in res["products"].items()))
+    if res["pending_regulator"]:
+        print(f"  note: {res['pending_regulator']['regulator']}: {res['pending_regulator']['reason']}")
+    if res["recent_events"]:
+        print("\n  Recent changes:")
+        for e in res["recent_events"]:
+            print(f"    {e['at']:%Y-%m-%d}  {e['summary']}" if e["at"] else f"    ?  {e['summary']}")
     return 0
 
 
@@ -300,6 +510,7 @@ def _ingest_flags(p: argparse.ArgumentParser) -> None:
                    help="accept row counts that moved beyond tolerance (after checking them)")
     p.add_argument("--root", type=pathlib.Path, default=None,
                    help="local blob root (default: BLOB_BACKEND / SNAPSHOT_ROOT)")
+    p.add_argument("--no-build", action="store_true", help="do not rebuild the model afterwards")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -345,6 +556,55 @@ def build_parser() -> argparse.ArgumentParser:
     _fmt(s)
     s.set_defaults(fn=cmd_check_domain)
 
+    s = sub.add_parser("build", help="rebuild the model from the register schemas")
+    s.set_defaults(fn=cmd_build)
+
+    s = sub.add_parser("domain", help="a verdict per jurisdiction for a website, with evidence")
+    s.add_argument("domain", help="a hostname or URL")
+    s.add_argument("-j", "--jurisdiction")
+    s.add_argument("--all", action="store_true", help="also show jurisdictions that do not list it")
+    _fmt(s)
+    s.set_defaults(fn=cmd_domain)
+
+    s = sub.add_parser("operators", help="find operators by company name, trading name or website")
+    s.add_argument("query")
+    s.add_argument("-j", "--jurisdiction")
+    s.add_argument("--limit", type=int, default=20)
+    _fmt(s)
+    s.set_defaults(fn=cmd_operators)
+
+    s = sub.add_parser("operator", help="one operator across every register")
+    s.add_argument("operator_id", help="from `registerwatch operators`, e.g. betway-ltd")
+    s.add_argument("-j", "--jurisdiction")
+    _fmt(s)
+    s.set_defaults(fn=cmd_operator)
+
+    s = sub.add_parser("licences", help="licences by jurisdiction, status, product")
+    s.add_argument("-j", "--jurisdiction")
+    s.add_argument("--status", help="comma-separated: active, suspended, revoked, expired, listed…")
+    s.add_argument("--product", help="comma-separated: casino, betting, poker, bingo, lottery…")
+    s.add_argument("-q", help="substring of reference, type or holder")
+    s.add_argument("--all", action="store_true", help="include licences removed from their register")
+    s.add_argument("--limit", type=int, default=50)
+    s.add_argument("--offset", type=int, default=0)
+    _fmt(s)
+    s.set_defaults(fn=cmd_licences)
+
+    s = sub.add_parser("events", help="what changed: the feed across every register")
+    s.add_argument("--since", type=_since, help="ISO date; default 7 days ago")
+    s.add_argument("--until", type=_since)
+    s.add_argument("-j", "--jurisdiction")
+    s.add_argument("-t", "--type", help="comma-separated types (licence.status_changed) or kinds (block)")
+    s.add_argument("--operator", help="operator id")
+    s.add_argument("--domain", help="a host and its subdomains")
+    s.add_argument("--limit", type=int, default=100)
+    _fmt(s)
+    s.set_defaults(fn=cmd_events)
+
+    s = sub.add_parser("coverage", help="what each register covers, how fresh, how complete")
+    _fmt(s)
+    s.set_defaults(fn=cmd_coverage)
+
     s = sub.add_parser("migrate", help="apply migrations and every register's schema")
     s.set_defaults(fn=cmd_migrate)
 
@@ -369,6 +629,10 @@ def build_parser() -> argparse.ArgumentParser:
         a = jsub.add_parser("info", help="registers, tables and columns (default)")
         _fmt(a)
         a.set_defaults(fn=cmd_jur_info)
+
+        a = jsub.add_parser("profile", help="coverage, counts, products and recent changes")
+        _fmt(a)
+        a.set_defaults(fn=cmd_jur_profile)
 
         a = jsub.add_parser("ingest", help=f"ingest {name}'s registers now")
         _ingest_flags(a)

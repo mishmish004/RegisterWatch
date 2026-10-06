@@ -33,6 +33,7 @@ def db():
     with psycopg.connect(DSN, autocommit=True) as c:
         for r in all_registers():
             c.execute(f"DROP SCHEMA IF EXISTS {r.slug} CASCADE")
+        c.execute("DROP SCHEMA IF EXISTS model CASCADE")
         c.execute("DROP TABLE IF EXISTS raw_snapshots, sources, host_state CASCADE")
         for path in sorted((ROOT / "src" / "registerwatch" / "migrations").glob("*.sql")):
             c.execute(path.read_text())
@@ -154,6 +155,26 @@ def test_history_across_three_runs_through_the_engine(db, tmp_path, monkeypatch)
     # The 503 run is on record and touched nothing.
     assert snap["complete"] is False and snap["record_count"] is None and snap["parsed_at"] is None
 
+    # The model reads the second run as two changes to two licences — the
+    # renumbering paired, as the README says a differ must — not four. (An
+    # earlier test may have loaded GB's fixture first, so only the second
+    # run's snapshot is looked at.)
+    from registerwatch.db.repos import model as model_repo
+    from registerwatch.registers import all_registers
+
+    with db() as c:
+        model_repo.rebuild(c, all_registers())
+    with db() as c:
+        events = c.execute("SELECT type, snapshot_id, before, after, summary FROM model.events "
+                           "WHERE snapshot_id = %s ORDER BY type", (second.snapshot_id,)).fetchall()
+        lic = c.execute("SELECT status, versions, current FROM model.licences "
+                        "WHERE licence_id = 'gb_ukgc:acct:103|000103-R-100000|Casino'").fetchone()
+    assert [(e["type"], e["snapshot_id"]) for e in events] == [("licence.changed", second.snapshot_id),
+                                                               ("licence.status_changed", second.snapshot_id)]
+    assert events[0]["after"] == {"reference": "000102-N-317976-011"}
+    assert "1st Class Bet Ltd" in events[1]["summary"] and "Active → Revoked" in events[1]["summary"]
+    assert lic == {"status": "revoked", "versions": 2, "current": True}
+
 
 def test_health_and_refetch_queries(db):
     from registerwatch.db.repos import snapshots as repo
@@ -259,3 +280,78 @@ def test_changes_reports_additions_and_removals_but_not_the_baseline(loaded):
     ch = after["tables"]["licensees"]
     assert [r["company"] for r in ch["added"]] == ["NEW OPERATOR LTD"]
     assert [r["company"] for r in ch["removed"]] == [rows[0]["company"]]
+
+
+# --- the model over every register -------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def modelled(loaded):
+    from registerwatch.db.repos import model as model_repo
+    from registerwatch.registers import all_registers
+
+    with loaded() as c:
+        first = model_repo.rebuild(c, all_registers())
+    with loaded() as c:
+        second = model_repo.rebuild(c, all_registers())
+    return loaded, first, second
+
+
+def test_the_model_rebuilds_whole_and_identically(modelled):
+    db, first, second = modelled
+    assert first["rows"] == second["rows"] and second["build_id"] == first["build_id"] + 1
+    assert all(n > 0 for k, n in first["rows"].items() if k != "events")
+    with db() as c:
+        f = __import__("registerwatch.db.repos.model", fromlist=["x"]).freshness(c)
+        n = {t: c.execute(f"SELECT count(*) AS n FROM model.{t}").fetchone()["n"] for t in first["rows"]}
+    assert n == second["rows"] and f["behind"] is False
+
+
+def test_domain_verdicts_from_the_database(modelled):
+    from datetime import date
+
+    from registerwatch import intel
+    from registerwatch.registers import all_registers
+
+    db = modelled[0]
+    with db() as c:
+        res = intel.domain(c, "https://www.BET365.com/", all_registers(), today=date(2026, 10, 6))
+        white = intel.domain(c, "firstclass.com", all_registers(), today=date(2026, 10, 6))
+    v = {x["jurisdiction"]: x for x in res["verdicts"]}
+    assert res["domain"] == "bet365.com" and "CH" in res["blocked_in"] and "SE" in res["authorised_in"]
+    assert v["US-NJ"]["verdict"] == "related_listed" and v["GR"]["verdict"] == "no_domain_data"
+    assert any(x["jurisdiction"] == "DE" and x["host"] == "bet365.de" for x in res["same_name_elsewhere"])
+    assert res["sources"]["se_si"]["homepage"].startswith("https://")
+    # firstclass.com is a white-label listing of an account whose only licence was revoked.
+    gb = next(x for x in white["verdicts"] if x["jurisdiction"] == "GB")
+    assert gb["verdict"] == "listed_not_operating" and "none of the party's licences" in gb["explanation"]
+
+
+def test_operators_licences_events_and_coverage(modelled):
+    from datetime import date
+
+    from registerwatch import intel
+    from registerwatch.registers import all_registers
+
+    db = modelled[0]
+    with db() as c:
+        found = intel.search_operators(c, "hillside", all_registers())
+        by_site = intel.search_operators(c, "fastbet.com", all_registers())
+        op = intel.operator(c, "hillside-europe-enc", all_registers(), today=date(2026, 10, 6))
+        via_party = intel.operator(c, "se_si:name:hillside europe enc", all_registers(), today=date(2026, 10, 6))
+        suspended = intel.licences(c, all_registers(), status="suspended")
+        casino_se = intel.licences(c, [r for r in all_registers() if r.country == "SE"], product="casino", limit=5)
+        feed = intel.events(c, all_registers(), types=["licence"])
+        gb = intel.jurisdiction(c, "gb", today=date(2026, 10, 6))
+        cov = intel.coverage(c)
+    assert {"hillside-europe-enc", "hillside-new-media-malta-plc"} <= {o["operator_id"] for o in found["operators"]}
+    assert by_site["operators"][0]["operator_id"] == "prozone-ltd" and "website" in by_site["operators"][0]["matched_on"]
+    assert {f["jurisdiction"] for f in op["footprint"]} == {"DE", "SE"} and via_party["operator_id"] == op["operator_id"]
+    assert any(b["host"] == "bet365.de" for b in op["websites_blocked"])  # licensed in DE, blocked in CH
+    assert any(x["register"] == "im_gsc" for x in suspended["licences"])
+    assert casino_se["total"] > 5 and all("casino" in x["products"] for x in casino_se["licences"])
+    assert set(feed["by_type"]) <= {"licence.added", "licence.removed", "licence.changed", "licence.status_changed"}
+    assert any("Active → Revoked" in e["summary"] for e in feed["events"] if e["type"] == "licence.status_changed")
+    assert gb["counts"]["licences"]["revoked"] == 1 and gb["registers"][0]["cadence"]
+    assert len(cov["registers"]) == 21 and len(cov["matrix"]) == 20 and cov["not_covered"]
+    pl = next(r for r in cov["registers"] if r["slug"] == "pl_mf")
+    assert pl["quality"]["blocked_domains"]["hostname_parsed"] == 100.0

@@ -10,7 +10,9 @@ Operations (bearer INGEST_TOKEN)
   POST /jurisdictions/{code}/ingest          every register of one jurisdiction
   GET  /ingest/last
 
-Reading (open, or bearer READ_TOKEN when set)
+  POST /build                                rebuild the model now (ingest batches do it themselves)
+
+Reading the registers (open, or bearer READ_TOKEN when set)
   GET  /jurisdictions                        codes, names, registers
   GET  /jurisdictions/{code}                 registers, tables, columns, freshness
   GET  /jurisdictions/{code}/{slug}/{table}  current rows; ?q= ?limit ?offset ?<column>=<value>
@@ -18,24 +20,40 @@ Reading (open, or bearer READ_TOKEN when set)
   GET  /search?q=                            across every register ?jurisdiction=GB,DE
   GET  /check/domain/{domain}                licensed where, blocked where
 
+Reading the model (same auth): one answer across every register, with evidence
+  GET  /domains/{domain}                     a verdict per jurisdiction, never a bare yes/no
+  GET  /operators?q=                         companies by name, trading name or website
+  GET  /operators/{operator_id}              footprint, licences, brands, websites, flags, history
+  GET  /licences                             ?jurisdiction ?status ?product ?q ?current
+  GET  /events                               the change feed ?since ?type ?jurisdiction ?operator ?domain
+  GET  /jurisdictions/{code}/profile         coverage, counts, products, recent changes
+  GET  /coverage                             every register's coverage, freshness, data quality
+
 Health
   GET  /health   GET /status   GET /registers
+
+Web
+  GET  /                                     a lookup page over the model endpoints (web/)
 """
 
 from __future__ import annotations
 
 import logging
+import pathlib
 import secrets
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
-from registerwatch import __version__, jurisdictions, query, registers
+from registerwatch import __version__, intel, jurisdictions, query, registers
 from registerwatch.config import settings
 from registerwatch.db.engine import pool, tx
+from registerwatch.db.repos import model as model_repo
 from registerwatch.db.repos import snapshots as repo
 from registerwatch.ingest import engine
 from registerwatch.storage.blobs import make_store
@@ -46,6 +64,10 @@ log = logging.getLogger(__name__)
 # overlap; the second is refused rather than queued behind the first.
 _running = threading.Lock()
 _last: dict[str, Any] = {}
+
+# A batch records its snapshots first and builds the model after, so the model
+# trails the registers by minutes during a run. Beyond this it is stale.
+MODEL_GRACE = timedelta(hours=1)
 
 
 @asynccontextmanager
@@ -65,6 +87,20 @@ app = FastAPI(
     description="Gambling regulators' public registers, one schema per register, with history.",
     lifespan=lifespan,
 )
+
+
+WEB = pathlib.Path(__file__).parent / "web"
+# The page draws register data; nothing it loads may come from anywhere else.
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+       "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+app.mount("/web", StaticFiles(directory=WEB), name="web")
+
+
+@app.get("/", include_in_schema=False)
+def index() -> HTMLResponse:
+    """The lookup page. Static: it reads the same endpoints as any client, with
+    the read token when one is set."""
+    return HTMLResponse((WEB / "index.html").read_text(), headers={"Content-Security-Policy": CSP})
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
@@ -126,10 +162,25 @@ def status(response: Response) -> dict[str, Any]:
             "stale": age_h is None or age_h > settings().stale_after_h,
         })
     stale = [s["slug"] for s in sources if s["stale"]]
-    if stale:
+    model = _model_freshness(now)
+    if stale or model.get("stale"):
         response.status_code = 503
-    return {"stale": bool(stale), "stale_registers": stale,
-            "stale_after_h": settings().stale_after_h, "sources": sources}
+    return {"stale": bool(stale) or bool(model.get("stale")), "stale_registers": stale,
+            "stale_after_h": settings().stale_after_h, "model": model, "sources": sources}
+
+
+def _model_freshness(now: datetime) -> dict[str, Any]:
+    """Stale when a complete snapshot has waited more than MODEL_GRACE for a
+    build: the registers moved and the model's answers did not."""
+    try:
+        with tx() as conn:
+            f = model_repo.freshness(conn)
+    except Exception as exc:  # noqa: BLE001 — reported, not fatal: the registers' health stands alone
+        log.warning("model freshness unavailable", exc_info=True)
+        return {"error": f"{type(exc).__name__}"}
+    newest = f["newest_snapshot_at"]
+    f["stale"] = bool(f["behind"] and newest and now - newest > MODEL_GRACE)
+    return f
 
 
 @app.post("/ingest/{slug}", dependencies=[Depends(require_token)], status_code=202, tags=["ingest"])
@@ -153,6 +204,17 @@ def trigger(
     background.add_task(_run_and_release, targets, force, accept_count_delta)
     return {"accepted": True, "registers": [r.slug for r in targets],
             "force": force, "accept_count_delta": accept_count_delta}
+
+
+@app.post("/build", dependencies=[Depends(require_token)], tags=["ingest"])
+def trigger_build() -> dict[str, Any]:
+    """Rebuild the model from the register schemas, inline (seconds)."""
+    if not _running.acquire(blocking=False):
+        raise HTTPException(409, "an ingest or build is already running")
+    try:
+        return _rebuild()
+    finally:
+        _running.release()
 
 
 @app.get("/ingest/last", dependencies=[Depends(require_token)], tags=["ingest"])
@@ -251,6 +313,103 @@ def check_domain(domain: str, jurisdiction: str | None = None) -> dict[str, Any]
         raise HTTPException(400, str(exc)) from None
 
 
+# --- reading the model ----------------------------------------------------------------
+
+def _regs_param(jurisdiction: str | None):
+    return ([r for code in jurisdiction.split(",") for r in _registers_of(code)]
+            if jurisdiction else registers.all_registers())
+
+
+def _today():
+    return datetime.now(timezone.utc).date()
+
+
+@app.get("/domains/{domain:path}", dependencies=[Depends(require_read)], tags=["model"])
+def get_domain(domain: str, jurisdiction: str | None = None) -> dict[str, Any]:
+    """Per jurisdiction: authorised, blocked, listed but not operating, related
+    host listed, previously listed, not listed, no data… with the explanation,
+    caveats and register rows behind each; plus the same name elsewhere and the
+    host's history. `domain` may be a URL."""
+    regs = _regs_param(jurisdiction)
+    try:
+        with tx() as conn:
+            return intel.domain(conn, domain, regs, today=_today())
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+@app.get("/operators", dependencies=[Depends(require_read)], tags=["model"])
+def search_operators(q: str = Query(..., min_length=2), jurisdiction: str | None = None,
+                     limit: int = 20) -> dict[str, Any]:
+    with tx() as conn:
+        return intel.search_operators(conn, q, _regs_param(jurisdiction), limit=limit)
+
+
+@app.get("/operators/{operator_id}", dependencies=[Depends(require_read)], tags=["model"])
+def get_operator(operator_id: str, jurisdiction: str | None = None) -> dict[str, Any]:
+    try:
+        with tx() as conn:
+            return intel.operator(conn, operator_id, _regs_param(jurisdiction), today=_today())
+    except KeyError as exc:
+        raise HTTPException(404, exc.args[0]) from None
+
+
+@app.get("/licences", dependencies=[Depends(require_read)], tags=["model"])
+def get_licences(jurisdiction: str | None = None, status: str | None = None, product: str | None = None,
+                 q: str | None = None, current: bool | None = True, limit: int = 100,
+                 offset: int = 0) -> dict[str, Any]:
+    """`status` and `product` take comma-separated values from the shared
+    vocabularies (active, suspended, revoked… / casino, betting, poker…);
+    `current=false` lists licences removed from their register."""
+    with tx() as conn:
+        return intel.licences(conn, _regs_param(jurisdiction), status=status, product=product, q=q,
+                              current=current, limit=limit, offset=offset)
+
+
+@app.get("/events", dependencies=[Depends(require_read)], tags=["model"])
+def get_events(since: datetime | None = Query(None, description="ISO date or timestamp; default 7 days ago"),
+               until: datetime | None = None, type: str | None = None, jurisdiction: str | None = None,
+               operator: str | None = None, domain: str | None = None, limit: int = 100,
+               offset: int = 0) -> dict[str, Any]:
+    """`type`: comma-separated event types (licence.status_changed) or kinds
+    (licence, domain, block, party, brand)."""
+    since = _utc(since) if since else datetime.now(timezone.utc) - timedelta(days=7)
+    try:
+        with tx() as conn:
+            out = intel.events(conn, _regs_param(jurisdiction), since=since, until=_utc(until) if until else None,
+                               types=type.split(",") if type else None, operator_id=operator, host=domain,
+                               limit=limit, offset=offset)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    return {"since": since, **out}
+
+
+@app.get("/jurisdictions/{code}/profile", dependencies=[Depends(require_read)], tags=["model"])
+def get_jurisdiction_profile(code: str) -> dict[str, Any]:
+    _registers_of(code)
+    with tx() as conn:
+        return intel.jurisdiction(conn, code, today=_today())
+
+
+@app.get("/coverage", dependencies=[Depends(require_read)], tags=["model"])
+def get_coverage() -> dict[str, Any]:
+    with tx() as conn:
+        return intel.coverage(conn)
+
+
+def _utc(d: datetime) -> datetime:
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def _rebuild() -> dict[str, Any]:
+    try:
+        with tx() as conn:
+            return {"ok": True, **model_repo.rebuild(conn, registers.all_registers())}
+    except Exception as exc:  # noqa: BLE001 — the ingest is recorded; a failed build is reported, not raised
+        log.exception("model build failed")
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
 def _run_and_release(targets, force: bool, accept_count_delta: bool) -> dict[str, Any]:
     started = datetime.now(timezone.utc).isoformat()
     try:
@@ -259,6 +418,9 @@ def _run_and_release(targets, force: bool, accept_count_delta: bool) -> dict[str
                    "complete": sum(r.complete for r in results),
                    "incomplete": [r.slug for r in results if not r.complete and not r.skipped],
                    "skipped": [r.slug for r in results if r.skipped]}
+        # The model follows any batch that changed what the registers hold.
+        if any(r.complete for r in results):
+            outcome["model"] = _rebuild()
     except Exception as exc:  # noqa: BLE001 — a background task has nobody to raise to
         log.exception("ingest batch failed")
         outcome = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}

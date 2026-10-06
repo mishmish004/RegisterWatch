@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RegisterWatch</title>
+<link rel="stylesheet" href="/web/app.css">
+<script src="/web/app.js" defer></script>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/">RegisterWatch</a>
+  <form id="search" class="search" role="search">
+    <input id="q" name="q" type="search" autocomplete="off" spellcheck="false"
+           placeholder="A website (bet365.com) or a company (Betway)" aria-label="Website or company">
+    <button type="submit">Look up</button>
+  </form>
+  <nav class="nav">
+    <a href="#/events">Changes</a>
+    <a href="#/coverage">Coverage</a>
+    <a href="/docs">API</a>
+  </nav>
+</header>
+<main id="view" aria-live="polite"></main>
+<footer class="foot">
+  Every answer comes from a regulator's own register, with the rows behind it. Not being listed is not proof of
+  illegality, and being listed is not legal advice.
+</footer>
+</body>
+</html>

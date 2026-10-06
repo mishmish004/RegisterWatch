@@ -89,4 +89,7 @@ Not checked in this pass; listed so the gap is visible.
 One module under `src/registerwatch/registers/` building a `Register` (URLs or
 a discovery plan, and tables with parsers), one line in `registers/__init__.py`,
 a fixture under `tests/fixtures/registers/<slug>/`, then
-`uv run registerwatch ddl --write` and `uv run registerwatch migrate`.
+`uv run registerwatch ddl --write` and `uv run registerwatch migrate`. For the
+model, add a projection and a coverage entry (see [docs/MODEL.md](docs/MODEL.md));
+a regulator moving from "Checked" to "Scraped" also leaves
+`model/catalogue.py`'s `UNCOVERED`.
