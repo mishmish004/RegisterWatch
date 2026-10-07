@@ -523,18 +523,18 @@ holder's sweep fails it (`worker lost`), as in T5.2.b.
 - T5.4.b Covered at OS level in T9.3.b.
 
 Checklist
-- [ ] T5.1.a ingest_runs migration idempotent
-- [ ] T5.1.b ingest_runs hidden from anon
-- [ ] T5.2.a single flight across two instances
-- [ ] T5.2.b lock freed when its holder dies
-- [ ] T5.3.a 202 + Location + final state
-- [ ] T5.3.b idempotent replay
-- [ ] T5.3.c key reuse with new body refused
-- [ ] T5.3.d bad targets refused
-- [ ] T5.3.e 401 vs 403 correct
-- [ ] T5.3.f run survives restart
-- [ ] T5.4.a stop between registers marks partial
-- [ ] GATE P5
+- [x] ~~T5.1.a ingest_runs migration idempotent~~
+- [x] ~~T5.1.b ingest_runs hidden from anon~~
+- [x] ~~T5.2.a single flight across two instances~~
+- [x] ~~T5.2.b lock freed when its holder dies~~
+- [x] ~~T5.3.a 202 + Location + final state~~
+- [x] ~~T5.3.b idempotent replay~~
+- [x] ~~T5.3.c key reuse with new body refused~~
+- [x] ~~T5.3.d bad targets refused~~
+- [x] ~~T5.3.e 401 vs 403 correct~~
+- [x] ~~T5.3.f run survives restart~~
+- [x] ~~T5.4.a stop between registers marks partial~~
+- [x] ~~GATE P5~~
 
 ---
 
@@ -855,7 +855,7 @@ Strike a phase here only after its `GATE` line is struck.
 - [x] ~~Phase 2. Versioned routing, operation ids, typed responses~~
 - [x] ~~Phase 3. Errors (RFC 9457) and input validation~~
 - [x] ~~Phase 4. Stable pagination and a complete change feed~~
-- [ ] Phase 5. Ingest runs as a persisted resource
+- [x] ~~Phase 5. Ingest runs as a persisted resource~~
 - [ ] Phase 6. Security schemes and authorization
 - [ ] Phase 7. Caching, rate limiting, query cost
 - [ ] Phase 8. Probes, status, and the database pool
