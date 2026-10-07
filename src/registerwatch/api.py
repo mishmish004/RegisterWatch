@@ -35,7 +35,7 @@ from registerwatch import __version__, jurisdictions, query, registers
 from registerwatch.config import settings
 from registerwatch.db.engine import pool, tx
 from registerwatch.db.repos import snapshots as repo
-from registerwatch.http import deps, guards, openapi, problems, request_id, v1
+from registerwatch.http import caching, deps, guards, openapi, problems, ratelimit, request_id, v1
 from registerwatch.ingest import engine, runs
 from registerwatch.storage.blobs import make_store
 
@@ -76,10 +76,15 @@ app = FastAPI(
 app.include_router(v1.router)
 openapi.install(app)
 problems.install(app)
+caching.install(app)
 # Each add wraps the ones before it, so the request id is outermost: it is set
 # before anything can answer, and every answer, a 500 included, carries it.
+# Rate limiting wraps everything that answers a request (a 500 too, so it carries
+# the client's RateLimit fields) and is inside no-store, so an ingest 429 is not stored.
 app.add_middleware(guards.NulGuardMiddleware)
 app.add_middleware(problems.UnhandledErrorMiddleware)
+app.add_middleware(ratelimit.RateLimitMiddleware)
+app.add_middleware(caching.NoStoreMiddleware)
 app.add_middleware(request_id.RequestIdMiddleware)
 
 # Postgres' bigint: the most a legacy LIMIT or OFFSET can be without a 500.

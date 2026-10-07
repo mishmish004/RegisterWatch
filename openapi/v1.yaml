@@ -26,6 +26,17 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JurisdictionPage'
+          headers:
+            Cache-Control: &id001
+              $ref: '#/components/headers/Cache-Control'
+            ETag: &id002
+              $ref: '#/components/headers/ETag'
+            RateLimit-Policy: &id003
+              $ref: '#/components/headers/RateLimit-Policy'
+            RateLimit: &id004
+              $ref: '#/components/headers/RateLimit'
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -66,6 +77,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JurisdictionDetail'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -150,6 +168,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChangePage'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -162,6 +187,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/registers:
     get:
       tags:
@@ -175,6 +202,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegisterPage'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -215,6 +249,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegisterDetail'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -264,6 +305,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TableSchema'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -368,6 +416,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RowPage'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -380,6 +435,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/registers/{slug}/tables/{table}/rows/{id}:
     get:
       tags:
@@ -429,6 +486,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RowDetail'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -441,6 +505,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/registers/{slug}/changes:
     get:
       tags:
@@ -513,6 +579,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ChangePage'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -525,6 +598,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/registers/{slug}/snapshots:
     get:
       tags:
@@ -573,6 +648,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SnapshotPage'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -585,6 +667,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/search:
     get:
       tags:
@@ -635,6 +719,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchHitPage'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -645,6 +736,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/domains/{domain}:
     get:
       tags:
@@ -687,6 +780,13 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DomainStatus'
+          headers:
+            Cache-Control: *id001
+            ETag: *id002
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '304':
+          $ref: '#/components/responses/NotModified'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -697,6 +797,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/ingest-runs:
     post:
       tags:
@@ -736,12 +838,20 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IngestRun'
+          headers:
+            Cache-Control: *id001
+            RateLimit-Policy: *id003
+            RateLimit: *id004
         '202':
           description: Successful Response
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/IngestRun'
+          headers:
+            Cache-Control: *id001
+            RateLimit-Policy: *id003
+            RateLimit: *id004
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -762,6 +872,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
     get:
       tags:
       - ingest
@@ -798,6 +910,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IngestRunPage'
+          headers:
+            Cache-Control: *id001
+            RateLimit-Policy: *id003
+            RateLimit: *id004
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -810,6 +926,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /v1/ingest-runs/{id}:
     get:
       tags:
@@ -835,6 +953,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/IngestRun'
+          headers:
+            Cache-Control: *id001
+            RateLimit-Policy: *id003
+            RateLimit: *id004
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -849,6 +971,8 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+        '504':
+          $ref: '#/components/responses/QueryTimeout'
   /health:
     get:
       tags:
@@ -1323,7 +1447,7 @@ components:
       - row
       title: ChangeEvent
       examples:
-      - &id001
+      - &id005
         change: removed
         at: '2026-10-07T06:00:44Z'
         snapshot_id: 431
@@ -1359,7 +1483,7 @@ components:
       title: ChangePage
       examples:
       - data:
-        - *id001
+        - *id005
         pagination:
           next_cursor: eyJwIjp7ImsiOls0MzEsImdiX3VrZ2MiLCJsaWNlbmNlcyIsMTE4NywicmVtb3ZlZCJdfSwicyI6IjEyIn0
           has_more: true
@@ -1437,7 +1561,7 @@ components:
       - row
       title: DomainMatch
       examples:
-      - &id002
+      - &id006
         jurisdiction: US-NJ
         register: us_nj_dge
         regulator: New Jersey Division of Gaming Enforcement
@@ -1491,7 +1615,7 @@ components:
         blocked_in:
         - CH
         matches:
-        - *id002
+        - *id006
     Freshness:
       properties:
         last_attempt_at:
@@ -1617,7 +1741,7 @@ components:
       - url
       title: IngestRun
       examples:
-      - &id003
+      - &id007
         id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
         status: partial
         requested:
@@ -1633,7 +1757,7 @@ components:
         finished_at: '2026-10-07T06:00:19Z'
         error: null
         results:
-        - &id004
+        - &id008
           register: ch_esbk
           snapshot_id: 431
           complete: true
@@ -1662,7 +1786,7 @@ components:
       title: IngestRunPage
       examples:
       - data:
-        - *id003
+        - *id007
         pagination:
           next_cursor: null
           has_more: false
@@ -1757,7 +1881,7 @@ components:
       - finished_at
       title: IngestRunResult
       examples:
-      - *id004
+      - *id008
     Jurisdiction:
       properties:
         code:
@@ -1783,7 +1907,7 @@ components:
       - registers
       title: Jurisdiction
       examples:
-      - &id005
+      - &id009
         code: CH
         name: Switzerland
         url: /v1/jurisdictions/ch
@@ -1836,7 +1960,7 @@ components:
           homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
           url: /v1/registers/ch_esbk
           tables:
-          - &id006
+          - &id010
             register: ch_esbk
             name: blocked_domains
             description: null
@@ -1866,7 +1990,7 @@ components:
       title: JurisdictionPage
       examples:
       - data:
-        - *id005
+        - *id009
         pagination:
           next_cursor: null
           has_more: false
@@ -1948,7 +2072,7 @@ components:
       - tables
       title: Register
       examples:
-      - &id007
+      - &id011
         slug: ch_esbk
         jurisdiction: CH
         regulator: Eidgenössische Spielbankenkommission (ESBK)
@@ -1957,7 +2081,7 @@ components:
         homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
         url: /v1/registers/ch_esbk
         tables:
-        - *id006
+        - *id010
     RegisterDetail:
       properties:
         slug:
@@ -2015,7 +2139,7 @@ components:
         homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
         url: /v1/registers/ch_esbk
         tables:
-        - *id006
+        - *id010
         freshness:
           last_attempt_at: '2026-10-07T06:00:41Z'
           last_good_at: '2026-10-07T06:00:41Z'
@@ -2037,7 +2161,7 @@ components:
       title: RegisterPage
       examples:
       - data:
-        - *id007
+        - *id011
         pagination:
           next_cursor: null
           has_more: false
@@ -2130,12 +2254,12 @@ components:
       - values
       title: Row
       examples:
-      - &id009
+      - &id013
         id: 1187
         first_seen_snapshot_id: 412
         first_seen_at: '2026-10-05T06:01:12Z'
         last_seen_at: '2026-10-07T06:00:41Z'
-        values: &id008
+        values: &id012
           account_number: '102'
           licence_number: 000102-N-000000-000
           status: Pending
@@ -2223,7 +2347,7 @@ components:
         first_seen_snapshot_id: 412
         first_seen_at: '2026-10-05T06:01:12Z'
         last_seen_at: '2026-10-07T06:00:41Z'
-        values: *id008
+        values: *id012
         last_seen_snapshot_id: 431
         removed_snapshot_id: null
         removed_at: null
@@ -2245,7 +2369,7 @@ components:
       title: RowPage
       examples:
       - data:
-        - *id009
+        - *id013
         pagination:
           next_cursor: eyJwIjp7Im8iOjF9LCJzIjoiYjk0YzQ3YjNiYzNkZTE2NyJ9
           has_more: true
@@ -2298,7 +2422,7 @@ components:
       - rows_url
       title: SearchHit
       examples:
-      - &id010
+      - &id014
         jurisdiction: CH
         register: ch_esbk
         regulator: Eidgenössische Spielbankenkommission (ESBK)
@@ -2331,7 +2455,7 @@ components:
       title: SearchHitPage
       examples:
       - data:
-        - *id010
+        - *id014
         pagination:
           next_cursor: null
           has_more: false
@@ -2393,7 +2517,7 @@ components:
       - pages_ok
       title: Snapshot
       examples:
-      - &id011
+      - &id015
         id: 433
         register: gb_ukgc
         run_started_at: '2026-10-07T06:00:02Z'
@@ -2421,7 +2545,7 @@ components:
       title: SnapshotPage
       examples:
       - data:
-        - *id011
+        - *id015
         pagination:
           next_cursor: eyJwIjp7ImsiOjQzM30sInMiOiI3In0
           has_more: true
@@ -2614,6 +2738,9 @@ components:
             - field: limit
               location: query
               message: Input should be less than or equal to 1000
+      headers:
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     Unauthenticated:
       description: 'The bearer token is missing, or is not one this route takes. Types: `unauthenticated`'
       content:
@@ -2633,6 +2760,8 @@ components:
             sent but is not valid (RFC 6750)'
           schema:
             type: string
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     Forbidden:
       description: 'The token is valid but cannot do this (a read token on an ingest operation). Types:
         `forbidden`'
@@ -2647,6 +2776,9 @@ components:
             detail: a read token cannot start or list ingest runs
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     NotFound:
       description: 'An identifier in the path or body does not exist. Types: `jurisdiction-not-found`,
         `register-not-found`, `table-not-found`, `row-not-found`, `ingest-run-not-found`'
@@ -2661,6 +2793,9 @@ components:
             detail: 'unknown jurisdiction ''zz''; known: au, be, ca, ...'
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     Conflict:
       description: 'An ingest run is already going; `active_run` links to it. Types: `ingest-in-progress`'
       content:
@@ -2674,11 +2809,13 @@ components:
             detail: 'an ingest run is already going: /v1/ingest-runs/0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11'
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
-      headers: &id012
-        Retry-After:
+      headers:
+        Retry-After: &id016
           description: Seconds to wait before retrying
           schema:
             type: integer
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     UnsupportedMediaType:
       description: 'The body is not `application/json`. Types: `unsupported-media-type`'
       content:
@@ -2692,6 +2829,9 @@ components:
             detail: send the body as application/json, not text/plain
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     IdempotencyKeyReused:
       description: 'The `Idempotency-Key` was used with a different body. Types: `idempotency-key-reused`'
       content:
@@ -2705,6 +2845,9 @@ components:
             detail: Idempotency-Key 'cron-2026-10-07' was used with a different body
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     TooManyRequests:
       description: 'Rate limit exceeded; wait `Retry-After` seconds. Types: `rate-limited`'
       content:
@@ -2718,7 +2861,10 @@ components:
             detail: 60 requests per minute for /v1/search; retry in 12 s
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
-      headers: *id012
+      headers:
+        Retry-After: *id016
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     InternalError:
       description: 'An unexpected error; quote `request_id` when reporting it. Types: `internal`'
       content:
@@ -2732,6 +2878,9 @@ components:
             detail: something went wrong on our side; quote request_id if you report it
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
+        RateLimit-Policy: *id003
+        RateLimit: *id004
     ServiceUnavailable:
       description: 'The database cannot be reached (retry after `Retry-After` seconds), or ingest is not
         configured on this deployment. Types: `database-unavailable`, `ingest-disabled`'
@@ -2746,4 +2895,58 @@ components:
             detail: the database cannot be reached right now; retry shortly
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
-      headers: *id012
+      headers:
+        Retry-After: *id016
+        RateLimit-Policy: *id003
+        RateLimit: *id004
+    QueryTimeout:
+      description: 'A query ran past the statement timeout and was cancelled; narrow the request, or retry
+        after `Retry-After` seconds. Types: `query-timeout`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#query-timeout
+            title: Query took too long
+            status: 504
+            detail: the query was cancelled for taking too long; narrow it and retry
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
+        Retry-After: *id016
+        RateLimit-Policy: *id003
+        RateLimit: *id004
+    NotModified:
+      description: Unchanged since the `ETag` sent in `If-None-Match`; no body
+      headers:
+        ETag:
+          $ref: '#/components/headers/ETag'
+        Cache-Control:
+          $ref: '#/components/headers/Cache-Control'
+        RateLimit-Policy: *id003
+        RateLimit: *id004
+  headers:
+    ETag:
+      description: This representation's version (weak). Send it back in `If-None-Match` and the answer
+        is a 304 with no body while the data is unchanged. New data shows within 30 seconds of its snapshot.
+      schema:
+        type: string
+      example: W/"9f2c5d0e..."
+    Cache-Control:
+      description: '`public, max-age=300` when reads are open, `private, max-age=300` when the deployment
+        requires a read token; `no-store` on ingest operations'
+      schema:
+        type: string
+    RateLimit-Policy:
+      description: 'The quota this request counts against (draft-ietf-httpapi-ratelimit-headers): `"read";q=600;w=60`
+        is 600 requests per 60 seconds. Per bearer token, or per client address without one. Defaults:
+        `read` 600, `search` (search and domains) 60, `ingest` (starting runs) 10 a minute.'
+      schema:
+        type: string
+      example: '"search";q=60;w=60'
+    RateLimit:
+      description: 'Where the client stands: `r` requests left, more available in `t` seconds'
+      schema:
+        type: string
+      example: '"search";r=41;t=1'

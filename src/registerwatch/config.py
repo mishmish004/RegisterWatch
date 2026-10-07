@@ -83,6 +83,17 @@ class Settings(BaseSettings):
     # 26h = one daily run plus slack for the retry slots.
     stale_after_h: float = 26.0
 
+    # Every statement of a v1 request's transaction is cancelled after this
+    # (a 504), so one slow query cannot hold a pooled connection. 0 = no limit.
+    read_statement_timeout_ms: int = Field(default=5000, ge=0)
+
+    # Requests per minute per client: per bearer token when one of ours is sent,
+    # else per client address. Kept in each process, so each replica (and each
+    # worker) counts on its own. 0 turns a class off.
+    rate_limit_read_per_min: int = Field(default=600, ge=0)
+    rate_limit_search_per_min: int = Field(default=60, ge=0)   # /v1/search and /v1/domains
+    rate_limit_ingest_per_min: int = Field(default=10, ge=0)   # starting ingest runs
+
     log_level: str = "INFO"
 
     @field_validator("ingest_token", "read_token")

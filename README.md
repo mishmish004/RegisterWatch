@@ -159,6 +159,21 @@ operation does not take is a 400, not ignored. Every response, legacy included,
 carries `X-Request-Id` (yours if you send a short one, else a UUIDv7), and the
 server's log line for the request has the same id.
 
+Every `/v1` read has a weak `ETag` naming the snapshots it was read at; send it
+back as `If-None-Match` and an unchanged answer is a 304 with no body. New data
+shows within 30 s of its snapshot. Reads are `Cache-Control: public, max-age=300`
+(`private` when `READ_TOKEN` is set) with `Vary: Authorization, Accept-Encoding`;
+ingest and status answers are `no-store`. Requests are rate limited per bearer
+token, or per client address without one of ours: 600 reads, 60 searches and
+domain checks, and 10 ingest starts a minute (`RATE_LIMIT_READ_PER_MIN`,
+`RATE_LIMIT_SEARCH_PER_MIN`, `RATE_LIMIT_INGEST_PER_MIN`; 0 turns one off).
+Each limited response carries `RateLimit-Policy` and `RateLimit` (`r` left,
+more in `t` seconds); over the limit is a 429 with `Retry-After`. The buckets
+live in each process, so every replica counts on its own, and behind a proxy
+that uvicorn does not trust (`FORWARDED_ALLOW_IPS`) all anonymous clients share
+the proxy's address. A v1 statement running past `READ_STATEMENT_TIMEOUT_MS`
+(5000) is cancelled: a 504 `query-timeout`.
+
 **Reading** — open, or `Authorization: Bearer $READ_TOKEN` when set
 
 | | |

@@ -20,7 +20,10 @@ from pydantic import AwareDatetime
 
 from registerwatch import jurisdictions, registers
 from registerwatch.config import settings
-from registerwatch.db.engine import tx
+
+# Every v1 transaction is a request's, so it runs under the read statement
+# timeout (plan.md P7.3). Named `tx` here so tests patch one name for all of v1.
+from registerwatch.db.engine import read_tx as tx
 from registerwatch.db.repos import snapshots as repo
 from registerwatch.http.problems import Catalog, ProblemError, invalid
 from registerwatch.registers.base import Register, Table
@@ -36,7 +39,8 @@ Timestamp = AwareDatetime
 
 
 def connection() -> AbstractContextManager[Connection]:
-    """One transaction. `tx` is looked up per call, so tests can patch it here."""
+    """One transaction, with the read statement timeout. `tx` is looked up per
+    call, so tests can patch it here."""
     return tx()
 
 

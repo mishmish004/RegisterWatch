@@ -29,7 +29,7 @@ from registerwatch.registers import all_registers
 from registerwatch.registers.base import Register
 
 router = APIRouter(dependencies=[Depends(require_ingest), Depends(known_parameters_only)])
-READ_ERRORS = responses(400, 401, 403, 429, 500, 503)
+READ_ERRORS = responses(400, 401, 403, 429, 500, 503, 504)
 RETRY_AFTER_BUSY = "60"
 
 
@@ -41,7 +41,7 @@ RETRY_AFTER_BUSY = "60"
                          "original run (200) instead of starting another.",
              responses={200: {"model": IngestRun, "description": "A replay of an earlier request with the same "
                                                                  "`Idempotency-Key`: the original run"},
-                        **responses(400, 401, 403, 404, 409, 415, 422, 429, 500, 503)},
+                        **responses(400, 401, 403, 404, 409, 415, 422, 429, 500, 503, 504)},
              dependencies=[Depends(json_body_only)])
 def create_ingest_run(
     response: Response,

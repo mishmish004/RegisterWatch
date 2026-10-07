@@ -19,16 +19,19 @@ from typing import Any
 from psycopg import Connection, sql
 
 from registerwatch import jurisdictions
-from registerwatch.registers.base import Register, Table
+from registerwatch.db.schema import ARRAY_TEXT
+from registerwatch.registers.base import DOMAIN_ARRAY_COLUMNS, DOMAIN_COLUMNS, Register, Table
 from registerwatch.registers.extract import host
 
 MAX_LIMIT = 1000
-DOMAIN_COLUMNS = ("host", "domain")      # scalar hostname columns
-DOMAIN_ARRAY_COLUMNS = ("hosts",)        # text[] of hostnames
+
+
+def _escape_like(s: str) -> str:
+    return s.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
 
 
 def _like(q: str) -> str:
-    return "%" + q.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_") + "%"
+    return "%" + _escape_like(q) + "%"
 
 
 def find_table(registers: list[Register], name: str) -> tuple[Register, Table]:
@@ -46,12 +49,16 @@ def find_table(registers: list[Register], name: str) -> tuple[Register, Table]:
 
 
 def _text_match(table: Table, q: str) -> tuple[sql.Composable, list[str]]:
+    """`q` in any searched column. Each term is the expression its trigram index
+    is built on (db/schema.py), so the planner can answer it from the index."""
     parts: list[sql.Composable] = []
     for c in table.columns:
+        if not c.searched:
+            continue
         if c.type == "text":
             parts.append(sql.SQL("{} ILIKE %s").format(sql.Identifier(c.name)))
-        elif c.type == "text[]":
-            parts.append(sql.SQL("array_to_string({}, ' ') ILIKE %s").format(sql.Identifier(c.name)))
+        else:
+            parts.append(sql.SQL(ARRAY_TEXT + "({}) ILIKE %s").format(sql.Identifier(c.name)))
     if not parts:
         return sql.SQL("false"), []
     return sql.SQL("(") + sql.SQL(" OR ").join(parts) + sql.SQL(")"), [_like(q)] * len(parts)
@@ -105,20 +112,26 @@ def check_domain(conn: Connection, domain: str, registers: list[Register]) -> di
     if not target:
         raise ValueError(f"{domain!r} is not a hostname")
     target = target.removeprefix("www.")
-    norm = "regexp_replace(lower({c}), '^www\\.', '')"
+    # The value itself, or with "www." in front (and only that, when the value
+    # already starts with it: "www." is stripped once). A subdomain ends with
+    # ".target"; reversed, that is a prefix, which the `reverse(lower(x))`
+    # index can find, where LIKE '%.target' reads every row.
+    forms = [f"www.{target}"] if target.startswith("www.") else [target, f"www.{target}"]
+    reversed_suffix = _escape_like(f".{target}"[::-1]) + "%"
     matches = []
     for r in registers:
         for t in r.tables:
             conds, params = [], []
             for c in t.columns:
                 if c.name in DOMAIN_COLUMNS:
-                    conds.append(sql.SQL(f"({norm} = %s OR lower({{c}}) LIKE %s)").format(c=sql.Identifier(c.name)))
-                    params += [target, "%." + target]
+                    conds.append(sql.SQL("(lower({c}) = ANY(%s) OR reverse(lower({c})) LIKE %s)")
+                                 .format(c=sql.Identifier(c.name)))
+                    params += [forms, reversed_suffix]
                 elif c.name in DOMAIN_ARRAY_COLUMNS:
                     conds.append(sql.SQL(
-                        "EXISTS (SELECT 1 FROM unnest({c}) h WHERE regexp_replace(lower(h), '^www\\.', '') = %s "
-                        "OR lower(h) LIKE %s)").format(c=sql.Identifier(c.name)))
-                    params += [target, "%." + target]
+                        "EXISTS (SELECT 1 FROM unnest({c}) h WHERE lower(h) = ANY(%s) "
+                        "OR reverse(lower(h)) LIKE %s)").format(c=sql.Identifier(c.name)))
+                    params += [forms, reversed_suffix]
             if not conds:
                 continue
             view = sql.Identifier(r.slug, f"current_{t.name}")

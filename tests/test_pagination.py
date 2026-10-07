@@ -249,6 +249,9 @@ def test_a_feed_cursor_is_bound_to_its_window(client):
 # --- P4.4 ----------------------------------------------------------------------------
 
 def test_search_is_one_query_per_register(client):  # T4.4.a
+    # The data versions behind ETags (P7.1) are read once per 30 s on a connection
+    # of their own; read them now, so what is counted below is the search alone.
+    assert client.get("/v1/registers/gb_ukgc/tables/licences/rows").status_code == 200
     for params, registers in [("q=betway", 21), ("q=betway&jurisdiction=gb", 1), ("q=bet&jurisdiction=ch", 2)]:
         client.connections.clear()
         assert client.get("/v1/search?" + params).status_code == 200

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Path, Query, Request, Response
 
 from registerwatch import query, registers
 from registerwatch.http import cursor, paging
+from registerwatch.http.caching import conditional
 from registerwatch.http.deps import (
     Timestamp,
     connection,
@@ -36,6 +37,7 @@ from registerwatch.http.v1.changes import SINCE, UNTIL, feed
 router = APIRouter(dependencies=[Depends(require_read), Depends(known_parameters_only)])
 ERRORS = responses(400, 401, 429, 500, 503)
 WITH_404 = {**ERRORS, **responses(404)}
+QUERY_404 = {**WITH_404, **responses(504)}  # reads rows under the statement timeout
 
 SLUG = Path(description="Register slug, e.g. `gb_ukgc`", examples=["gb_ukgc"])
 TABLE = Path(description="Table name within the register", examples=["licences"])
@@ -55,29 +57,34 @@ FILTER_PARAMETER = {
 
 @router.get("/registers", operation_id="listRegisters", tags=["registers"], summary="List registers",
             responses=ERRORS)
-def list_registers() -> RegisterPage:
+def list_registers(request: Request, response: Response) -> RegisterPage:
+    conditional(request, response)
     data = [Register.of(r) for r in registers.all_registers()]
     return RegisterPage(data=data, pagination=Pagination.whole(data))
 
 
 @router.get("/registers/{slug}", operation_id="getRegister", tags=["registers"],
             summary="Get a register with its tables and freshness", responses=WITH_404)
-def get_register(slug: str = SLUG) -> RegisterDetail:
-    return RegisterDetail.with_health(register_or_404(slug), freshness())
+def get_register(request: Request, response: Response, slug: str = SLUG) -> RegisterDetail:
+    reg = register_or_404(slug)
+    conditional(request, response, [reg], freshness=True)
+    return RegisterDetail.with_health(reg, freshness())
 
 
 @router.get("/registers/{slug}/tables/{table}", operation_id="getTable", tags=["registers"],
             summary="Get a table's columns", responses=WITH_404)
-def get_table(slug: str = SLUG, table: str = TABLE) -> TableSchema:
+def get_table(request: Request, response: Response, slug: str = SLUG, table: str = TABLE) -> TableSchema:
     reg = register_or_404(slug)
-    return TableSchema.of(reg, table_or_404(reg, table))
+    tbl = table_or_404(reg, table)
+    conditional(request, response)
+    return TableSchema.of(reg, tbl)
 
 
 @router.get("/registers/{slug}/tables/{table}/rows", operation_id="listRows", tags=["rows"],
             summary="List a table's current rows",
             description="Rows in `id` order. Every page of one walk is read as of the snapshot the first "
                         "page was, so an ingest during the walk neither repeats nor skips a row.",
-            responses=WITH_404, openapi_extra={"parameters": [FILTER_PARAMETER]})
+            responses=QUERY_404, openapi_extra={"parameters": [FILTER_PARAMETER]})
 def list_rows(
     request: Request,
     response: Response,
@@ -94,6 +101,7 @@ def list_rows(
     filters = _filters(request, tbl.column_names)
     scope = cursor.scope_of("rows", reg.slug, tbl.name, q, sorted(filters.items()))
     at = paging.position(cursor_, scope)
+    conditional(request, response, [reg])
     with connection() as conn:
         latest = query.latest_snapshot_id(conn, reg)
         snapshot, after = (latest, 0) if at is None else _keyed(at)
@@ -108,11 +116,12 @@ def list_rows(
 
 
 @router.get("/registers/{slug}/tables/{table}/rows/{id}", operation_id="getRow", tags=["rows"],
-            summary="Get one row, current or not, with its history", responses=WITH_404)
-def get_row(slug: str = SLUG, table: str = TABLE,
+            summary="Get one row, current or not, with its history", responses=QUERY_404)
+def get_row(request: Request, response: Response, slug: str = SLUG, table: str = TABLE,
             id: int = Path(ge=1, le=2**63 - 1, description="The row's `id`", examples=[1187])) -> RowDetail:
     reg = register_or_404(slug)
     tbl = table_or_404(reg, table)
+    conditional(request, response, [reg])
     with connection() as conn:
         row = query.get_row(conn, reg, tbl, id)
     if row is None:
@@ -124,7 +133,7 @@ def get_row(slug: str = SLUG, table: str = TABLE,
             summary="Rows added and removed in a register, oldest first",
             description="The register's first complete snapshot is its baseline, not a change. Never "
                         "truncated: follow `next_cursor` until `has_more` is false.",
-            responses=WITH_404)
+            responses=QUERY_404)
 def list_register_changes(request: Request, response: Response, slug: str = SLUG,
                           since: Timestamp | None = SINCE, until: Timestamp | None = UNTIL,
                           limit: int = paging.LIMIT, cursor_: str | None = paging.CURSOR) -> ChangePage:
@@ -133,13 +142,14 @@ def list_register_changes(request: Request, response: Response, slug: str = SLUG
 
 
 @router.get("/registers/{slug}/snapshots", operation_id="listSnapshots", tags=["registers"],
-            summary="Every ingest run of a register, complete or not, newest first", responses=WITH_404)
+            summary="Every ingest run of a register, complete or not, newest first", responses=QUERY_404)
 def list_snapshots(request: Request, response: Response, slug: str = SLUG, limit: int = paging.LIMIT,
                    cursor_: str | None = paging.CURSOR) -> SnapshotPage:
     reg = register_or_404(slug)
     scope = cursor.scope_of("snapshots", reg.slug)
     at = paging.position(cursor_, scope)
     before = _int(at, "k") if at is not None else None
+    conditional(request, response, [reg], attempts=True)
     with connection() as conn:
         rows = query.snapshot_page(conn, reg, before=before, limit=limit)
     last = rows[limit - 1]["id"] if len(rows) > limit else None

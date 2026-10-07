@@ -2,6 +2,13 @@
 -- Edit the register modules, not this file; tests fail when the two disagree.
 -- Idempotent: safe to re-run.
 
+CREATE SCHEMA IF NOT EXISTS extensions;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
+CREATE SCHEMA IF NOT EXISTS registerwatch_private;
+REVOKE ALL ON SCHEMA registerwatch_private FROM PUBLIC;
+CREATE OR REPLACE FUNCTION registerwatch_private.array_text(text[]) RETURNS text
+  LANGUAGE sql IMMUTABLE STRICT PARALLEL SAFE AS $$ SELECT array_to_string($1, ' ') $$;
+
 -- au_acma: Register of licensed interactive wagering service providers
 -- Australian Communications and Media Authority (ACMA) (AU) — https://www.acma.gov.au/check-if-gambling-operator-legal
 CREATE SCHEMA IF NOT EXISTS au_acma;
@@ -33,6 +40,20 @@ CREATE INDEX IF NOT EXISTS providers_removed
   ON au_acma.providers (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS providers_current_id
   ON au_acma.providers (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS providers_trading_name_trgm
+  ON au_acma.providers USING gin (trading_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS providers_licence_holder_trgm
+  ON au_acma.providers USING gin (licence_holder extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS providers_url_trgm
+  ON au_acma.providers USING gin (url extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS providers_licensing_authority_trgm
+  ON au_acma.providers USING gin (licensing_authority extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS providers_host_trgm
+  ON au_acma.providers USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS providers_host_lower
+  ON au_acma.providers (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS providers_host_reverse
+  ON au_acma.providers (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW au_acma.current_providers AS
   SELECT trading_name, licence_holder, url, licensing_authority, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM au_acma.providers WHERE removed_snapshot_id IS NULL;
@@ -77,6 +98,22 @@ CREATE INDEX IF NOT EXISTS online_licences_removed
   ON be_gc.online_licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS online_licences_current_id
   ON be_gc.online_licences (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_licence_class_trgm
+  ON be_gc.online_licences USING gin (licence_class extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_dossier_id_trgm
+  ON be_gc.online_licences USING gin (dossier_id extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_establishment_trgm
+  ON be_gc.online_licences USING gin (establishment extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_operator_trgm
+  ON be_gc.online_licences USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_website_trgm
+  ON be_gc.online_licences USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_host_trgm
+  ON be_gc.online_licences USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_host_lower
+  ON be_gc.online_licences (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS online_licences_host_reverse
+  ON be_gc.online_licences (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW be_gc.current_online_licences AS
   SELECT licence_class, dossier_id, establishment, operator, website, host, decision_date, publication_date, expiration_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM be_gc.online_licences WHERE removed_snapshot_id IS NULL;
@@ -123,6 +160,24 @@ CREATE INDEX IF NOT EXISTS establishments_removed
   ON be_gc.establishments (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS establishments_current_id
   ON be_gc.establishments (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_licence_class_trgm
+  ON be_gc.establishments USING gin (licence_class extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_dossier_id_trgm
+  ON be_gc.establishments USING gin (dossier_id extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_establishment_trgm
+  ON be_gc.establishments USING gin (establishment extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_owner_trgm
+  ON be_gc.establishments USING gin (owner extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_street_address_nl_trgm
+  ON be_gc.establishments USING gin (street_address_nl extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_street_address_fr_trgm
+  ON be_gc.establishments USING gin (street_address_fr extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_postal_code_trgm
+  ON be_gc.establishments USING gin (postal_code extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_commune_trgm
+  ON be_gc.establishments USING gin (commune extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS establishments_province_trgm
+  ON be_gc.establishments USING gin (province extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW be_gc.current_establishments AS
   SELECT licence_class, dossier_id, establishment, owner, street_address_nl, street_address_fr, postal_code, commune, province, decision_date, publication_date, expiration_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM be_gc.establishments WHERE removed_snapshot_id IS NULL;
@@ -155,6 +210,16 @@ CREATE INDEX IF NOT EXISTS operators_removed
   ON ca_kgc.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS operators_current_id
   ON ca_kgc.operators (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_operator_trgm
+  ON ca_kgc.operators USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_url_trgm
+  ON ca_kgc.operators USING gin (url extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_host_trgm
+  ON ca_kgc.operators USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_host_lower
+  ON ca_kgc.operators (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_host_reverse
+  ON ca_kgc.operators (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ca_kgc.current_operators AS
   SELECT operator, url, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ca_kgc.operators WHERE removed_snapshot_id IS NULL;
@@ -179,6 +244,8 @@ CREATE INDEX IF NOT EXISTS software_providers_removed
   ON ca_kgc.software_providers (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS software_providers_current_id
   ON ca_kgc.software_providers (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS software_providers_name_trgm
+  ON ca_kgc.software_providers USING gin (name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ca_kgc.current_software_providers AS
   SELECT name, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ca_kgc.software_providers WHERE removed_snapshot_id IS NULL;
@@ -215,6 +282,20 @@ CREATE INDEX IF NOT EXISTS brands_removed
   ON ca_on_igo.brands (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS brands_current_id
   ON ca_on_igo.brands (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_brand_trgm
+  ON ca_on_igo.brands USING gin (brand extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_website_trgm
+  ON ca_on_igo.brands USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_host_trgm
+  ON ca_on_igo.brands USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_host_lower
+  ON ca_on_igo.brands (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_host_reverse
+  ON ca_on_igo.brands (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_offerings_trgm
+  ON ca_on_igo.brands USING gin (registerwatch_private.array_text(offerings) extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_link_text_trgm
+  ON ca_on_igo.brands USING gin (link_text extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ca_on_igo.current_brands AS
   SELECT brand, website, host, offerings, link_text, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ca_on_igo.brands WHERE removed_snapshot_id IS NULL;
@@ -245,6 +326,12 @@ CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON ch_esbk.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS blocked_domains_current_id
   ON ch_esbk.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_trgm
+  ON ch_esbk.blocked_domains USING gin (domain extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_lower
+  ON ch_esbk.blocked_domains (lower(domain)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_reverse
+  ON ch_esbk.blocked_domains (reverse(lower(domain)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ch_esbk.current_blocked_domains AS
   SELECT domain, listed_on, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ch_esbk.blocked_domains WHERE removed_snapshot_id IS NULL;
@@ -275,6 +362,12 @@ CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON ch_gespa.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS blocked_domains_current_id
   ON ch_gespa.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_trgm
+  ON ch_gespa.blocked_domains USING gin (domain extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_lower
+  ON ch_gespa.blocked_domains (lower(domain)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_reverse
+  ON ch_gespa.blocked_domains (reverse(lower(domain)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ch_gespa.current_blocked_domains AS
   SELECT domain, well_formed, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ch_gespa.blocked_domains WHERE removed_snapshot_id IS NULL;
@@ -307,6 +400,12 @@ CREATE INDEX IF NOT EXISTS operators_removed
   ON cz_mf.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS operators_current_id
   ON cz_mf.operators (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_operator_trgm
+  ON cz_mf.operators USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_company_id_trgm
+  ON cz_mf.operators USING gin (company_id extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_seat_trgm
+  ON cz_mf.operators USING gin (seat extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW cz_mf.current_operators AS
   SELECT operator, company_id, seat, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM cz_mf.operators WHERE removed_snapshot_id IS NULL;
@@ -343,6 +442,16 @@ CREATE INDEX IF NOT EXISTS permits_removed
   ON cz_mf.permits (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS permits_current_id
   ON cz_mf.permits (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_operator_trgm
+  ON cz_mf.permits USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_game_type_trgm
+  ON cz_mf.permits USING gin (game_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_channel_trgm
+  ON cz_mf.permits USING gin (channel extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_domains_trgm
+  ON cz_mf.permits USING gin (registerwatch_private.array_text(domains) extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_hosts_trgm
+  ON cz_mf.permits USING gin (registerwatch_private.array_text(hosts) extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW cz_mf.current_permits AS
   SELECT operator, game_type, channel, final_on, effective_on, domains, hosts, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM cz_mf.permits WHERE removed_snapshot_id IS NULL;
@@ -383,6 +492,20 @@ CREATE INDEX IF NOT EXISTS permits_removed
   ON de_ggl.permits (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS permits_current_id
   ON de_ggl.permits (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_operator_trgm
+  ON de_ggl.permits USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_gambling_type_trgm
+  ON de_ggl.permits USING gin (gambling_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_address_trgm
+  ON de_ggl.permits USING gin (address extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_distribution_channel_trgm
+  ON de_ggl.permits USING gin (distribution_channel extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_sales_area_trgm
+  ON de_ggl.permits USING gin (sales_area extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_authority_trgm
+  ON de_ggl.permits USING gin (authority extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS permits_locations_trgm
+  ON de_ggl.permits USING gin (locations extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW de_ggl.current_permits AS
   SELECT operator, gambling_type, address, distribution_channel, sales_area, authority, locations, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM de_ggl.permits WHERE removed_snapshot_id IS NULL;
@@ -417,6 +540,18 @@ CREATE INDEX IF NOT EXISTS websites_removed
   ON de_ggl.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS websites_current_id
   ON de_ggl.websites (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_operator_trgm
+  ON de_ggl.websites USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_gambling_type_trgm
+  ON de_ggl.websites USING gin (gambling_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_website_trgm
+  ON de_ggl.websites USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_trgm
+  ON de_ggl.websites USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_lower
+  ON de_ggl.websites (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_reverse
+  ON de_ggl.websites (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW de_ggl.current_websites AS
   SELECT operator, gambling_type, website, host, first_permit_date, renewal_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM de_ggl.websites WHERE removed_snapshot_id IS NULL;
@@ -451,6 +586,14 @@ CREATE INDEX IF NOT EXISTS operators_removed
   ON ee_emta.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS operators_current_id
   ON ee_emta.operators (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_subtype_trgm
+  ON ee_emta.operators USING gin (subtype extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_operator_trgm
+  ON ee_emta.operators USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_brand_trgm
+  ON ee_emta.operators USING gin (brand extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_register_url_trgm
+  ON ee_emta.operators USING gin (register_url extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ee_emta.current_operators AS
   SELECT subtype, operator, brand, register_url, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ee_emta.operators WHERE removed_snapshot_id IS NULL;
@@ -481,6 +624,18 @@ CREATE INDEX IF NOT EXISTS websites_removed
   ON ee_emta.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS websites_current_id
   ON ee_emta.websites (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_subtype_trgm
+  ON ee_emta.websites USING gin (subtype extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_operator_trgm
+  ON ee_emta.websites USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_website_trgm
+  ON ee_emta.websites USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_trgm
+  ON ee_emta.websites USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_lower
+  ON ee_emta.websites (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_reverse
+  ON ee_emta.websites (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ee_emta.current_websites AS
   SELECT subtype, operator, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ee_emta.websites WHERE removed_snapshot_id IS NULL;
@@ -511,6 +666,10 @@ CREATE INDEX IF NOT EXISTS operators_removed
   ON es_dgoj.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS operators_current_id
   ON es_dgoj.operators (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_operator_trgm
+  ON es_dgoj.operators USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_detail_url_trgm
+  ON es_dgoj.operators USING gin (detail_url extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW es_dgoj.current_operators AS
   SELECT operator, detail_url, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM es_dgoj.operators WHERE removed_snapshot_id IS NULL;
@@ -539,6 +698,16 @@ CREATE INDEX IF NOT EXISTS websites_removed
   ON es_dgoj.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS websites_current_id
   ON es_dgoj.websites (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_operator_trgm
+  ON es_dgoj.websites USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_website_trgm
+  ON es_dgoj.websites USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_trgm
+  ON es_dgoj.websites USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_lower
+  ON es_dgoj.websites (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_reverse
+  ON es_dgoj.websites (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW es_dgoj.current_websites AS
   SELECT operator, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM es_dgoj.websites WHERE removed_snapshot_id IS NULL;
@@ -569,6 +738,10 @@ CREATE INDEX IF NOT EXISTS operators_removed
   ON fr_anj.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS operators_current_id
   ON fr_anj.operators (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_operator_trgm
+  ON fr_anj.operators USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS operators_categories_trgm
+  ON fr_anj.operators USING gin (registerwatch_private.array_text(categories) extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW fr_anj.current_operators AS
   SELECT operator, categories, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM fr_anj.operators WHERE removed_snapshot_id IS NULL;
@@ -597,6 +770,16 @@ CREATE INDEX IF NOT EXISTS websites_removed
   ON fr_anj.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS websites_current_id
   ON fr_anj.websites (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_operator_trgm
+  ON fr_anj.websites USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_website_trgm
+  ON fr_anj.websites USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_trgm
+  ON fr_anj.websites USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_lower
+  ON fr_anj.websites (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS websites_host_reverse
+  ON fr_anj.websites (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW fr_anj.current_websites AS
   SELECT operator, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM fr_anj.websites WHERE removed_snapshot_id IS NULL;
@@ -627,6 +810,10 @@ CREATE INDEX IF NOT EXISTS businesses_removed
   ON gb_ukgc.businesses (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS businesses_current_id
   ON gb_ukgc.businesses (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS businesses_account_number_trgm
+  ON gb_ukgc.businesses USING gin (account_number extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS businesses_licence_account_name_trgm
+  ON gb_ukgc.businesses USING gin (licence_account_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_businesses AS
   SELECT account_number, licence_account_name, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.businesses WHERE removed_snapshot_id IS NULL;
@@ -663,6 +850,16 @@ CREATE INDEX IF NOT EXISTS licences_removed
   ON gb_ukgc.licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS licences_current_id
   ON gb_ukgc.licences (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_account_number_trgm
+  ON gb_ukgc.licences USING gin (account_number extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_licence_number_trgm
+  ON gb_ukgc.licences USING gin (licence_number extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_status_trgm
+  ON gb_ukgc.licences USING gin (status extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_type_trgm
+  ON gb_ukgc.licences USING gin (type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_activity_trgm
+  ON gb_ukgc.licences USING gin (activity extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_licences AS
   SELECT account_number, licence_number, status, type, activity, start_date, end_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.licences WHERE removed_snapshot_id IS NULL;
@@ -691,6 +888,12 @@ CREATE INDEX IF NOT EXISTS trading_names_removed
   ON gb_ukgc.trading_names (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS trading_names_current_id
   ON gb_ukgc.trading_names (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS trading_names_account_number_trgm
+  ON gb_ukgc.trading_names USING gin (account_number extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS trading_names_trading_name_trgm
+  ON gb_ukgc.trading_names USING gin (trading_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS trading_names_status_trgm
+  ON gb_ukgc.trading_names USING gin (status extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_trading_names AS
   SELECT account_number, trading_name, status, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.trading_names WHERE removed_snapshot_id IS NULL;
@@ -721,6 +924,18 @@ CREATE INDEX IF NOT EXISTS domain_names_removed
   ON gb_ukgc.domain_names (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS domain_names_current_id
   ON gb_ukgc.domain_names (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domain_names_account_number_trgm
+  ON gb_ukgc.domain_names USING gin (account_number extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domain_names_domain_name_trgm
+  ON gb_ukgc.domain_names USING gin (domain_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domain_names_status_trgm
+  ON gb_ukgc.domain_names USING gin (status extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domain_names_host_trgm
+  ON gb_ukgc.domain_names USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domain_names_host_lower
+  ON gb_ukgc.domain_names (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domain_names_host_reverse
+  ON gb_ukgc.domain_names (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_domain_names AS
   SELECT account_number, domain_name, status, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.domain_names WHERE removed_snapshot_id IS NULL;
@@ -751,6 +966,10 @@ CREATE INDEX IF NOT EXISTS licensees_removed
   ON gr_hgc.licensees (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS licensees_current_id
   ON gr_hgc.licensees (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licensees_company_trgm
+  ON gr_hgc.licensees USING gin (company extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licensees_licence_type_trgm
+  ON gr_hgc.licensees USING gin (licence_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gr_hgc.current_licensees AS
   SELECT company, licence_type, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gr_hgc.licensees WHERE removed_snapshot_id IS NULL;
@@ -791,6 +1010,20 @@ CREATE INDEX IF NOT EXISTS gaming_licences_removed
   ON ie_revenue.gaming_licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS gaming_licences_current_id
   ON ie_revenue.gaming_licences (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_licence_ref_trgm
+  ON ie_revenue.gaming_licences USING gin (licence_ref extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_licence_type_trgm
+  ON ie_revenue.gaming_licences USING gin (licence_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_licensee_name_trgm
+  ON ie_revenue.gaming_licences USING gin (licensee_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_trading_name_trgm
+  ON ie_revenue.gaming_licences USING gin (trading_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_relevant_officer_trgm
+  ON ie_revenue.gaming_licences USING gin (relevant_officer extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_premises_address_trgm
+  ON ie_revenue.gaming_licences USING gin (premises_address extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_principal_office_address_trgm
+  ON ie_revenue.gaming_licences USING gin (principal_office_address extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ie_revenue.current_gaming_licences AS
   SELECT licence_ref, licence_type, licensee_name, trading_name, relevant_officer, premises_address, principal_office_address, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ie_revenue.gaming_licences WHERE removed_snapshot_id IS NULL;
@@ -825,6 +1058,18 @@ CREATE INDEX IF NOT EXISTS bookmakers_removed
   ON ie_revenue.bookmakers (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS bookmakers_current_id
   ON ie_revenue.bookmakers (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS bookmakers_licence_ref_trgm
+  ON ie_revenue.bookmakers USING gin (licence_ref extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS bookmakers_licensee_name_trgm
+  ON ie_revenue.bookmakers USING gin (licensee_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS bookmakers_trading_name_trgm
+  ON ie_revenue.bookmakers USING gin (trading_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS bookmakers_relevant_officer_trgm
+  ON ie_revenue.bookmakers USING gin (relevant_officer extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS bookmakers_place_of_business_trgm
+  ON ie_revenue.bookmakers USING gin (place_of_business extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS bookmakers_county_trgm
+  ON ie_revenue.bookmakers USING gin (county extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ie_revenue.current_bookmakers AS
   SELECT licence_ref, licensee_name, trading_name, relevant_officer, place_of_business, county, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ie_revenue.bookmakers WHERE removed_snapshot_id IS NULL;
@@ -861,6 +1106,14 @@ CREATE INDEX IF NOT EXISTS licensees_removed
   ON im_gsc.licensees (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS licensees_current_id
   ON im_gsc.licensees (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licensees_company_trgm
+  ON im_gsc.licensees USING gin (company extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licensees_status_trgm
+  ON im_gsc.licensees USING gin (status extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licensees_valid_to_trgm
+  ON im_gsc.licensees USING gin (valid_to extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licensees_licence_type_trgm
+  ON im_gsc.licensees USING gin (licence_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW im_gsc.current_licensees AS
   SELECT company, status, valid_from, valid_to, licence_type, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM im_gsc.licensees WHERE removed_snapshot_id IS NULL;
@@ -889,6 +1142,20 @@ CREATE INDEX IF NOT EXISTS domains_removed
   ON im_gsc.domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS domains_current_id
   ON im_gsc.domains (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domains_company_trgm
+  ON im_gsc.domains USING gin (company extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domains_domain_trgm
+  ON im_gsc.domains USING gin (domain extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domains_domain_lower
+  ON im_gsc.domains (lower(domain)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domains_domain_reverse
+  ON im_gsc.domains (reverse(lower(domain)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domains_host_trgm
+  ON im_gsc.domains USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domains_host_lower
+  ON im_gsc.domains (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS domains_host_reverse
+  ON im_gsc.domains (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW im_gsc.current_domains AS
   SELECT company, domain, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM im_gsc.domains WHERE removed_snapshot_id IS NULL;
@@ -919,6 +1186,12 @@ CREATE INDEX IF NOT EXISTS licence_holders_removed
   ON im_gsc.licence_holders (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS licence_holders_current_id
   ON im_gsc.licence_holders (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licence_holders_name_trgm
+  ON im_gsc.licence_holders USING gin (name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licence_holders_firm_status_trgm
+  ON im_gsc.licence_holders USING gin (firm_status extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licence_holders_licence_type_trgm
+  ON im_gsc.licence_holders USING gin (licence_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW im_gsc.current_licence_holders AS
   SELECT name, firm_status, initial_licence_date, licence_type, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM im_gsc.licence_holders WHERE removed_snapshot_id IS NULL;
@@ -949,6 +1222,12 @@ CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON it_adm.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS blocked_domains_current_id
   ON it_adm.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_trgm
+  ON it_adm.blocked_domains USING gin (domain extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_lower
+  ON it_adm.blocked_domains (lower(domain)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_reverse
+  ON it_adm.blocked_domains (reverse(lower(domain)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW it_adm.current_blocked_domains AS
   SELECT domain, well_formed, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM it_adm.blocked_domains WHERE removed_snapshot_id IS NULL;
@@ -983,6 +1262,14 @@ CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON pl_mf.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS blocked_domains_current_id
   ON pl_mf.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_trgm
+  ON pl_mf.blocked_domains USING gin (domain extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_lower
+  ON pl_mf.blocked_domains (lower(domain)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_domain_reverse
+  ON pl_mf.blocked_domains (reverse(lower(domain)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_added_at_local_trgm
+  ON pl_mf.blocked_domains USING gin (added_at_local extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW pl_mf.current_blocked_domains AS
   SELECT entry_no, domain, added_at_local, added_on, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM pl_mf.blocked_domains WHERE removed_snapshot_id IS NULL;
@@ -1021,6 +1308,22 @@ CREATE INDEX IF NOT EXISTS brands_removed
   ON pt_srij.brands (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS brands_current_id
   ON pt_srij.brands (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_block_id_trgm
+  ON pt_srij.brands USING gin (block_id extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_title_trgm
+  ON pt_srij.brands USING gin (title extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_brand_trgm
+  ON pt_srij.brands USING gin (brand extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_website_trgm
+  ON pt_srij.brands USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_host_trgm
+  ON pt_srij.brands USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_host_lower
+  ON pt_srij.brands (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_host_reverse
+  ON pt_srij.brands (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS brands_operator_trgm
+  ON pt_srij.brands USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW pt_srij.current_brands AS
   SELECT block_id, title, brand, website, host, operator, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM pt_srij.brands WHERE removed_snapshot_id IS NULL;
@@ -1093,6 +1396,52 @@ CREATE INDEX IF NOT EXISTS licences_removed
   ON se_si.licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS licences_current_id
   ON se_si.licences (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_address_1_trgm
+  ON se_si.licences USING gin (address_1 extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_address_2_trgm
+  ON se_si.licences USING gin (address_2 extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_operator_trgm
+  ON se_si.licences USING gin (operator extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_shop_id_trgm
+  ON se_si.licences USING gin (shop_id extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_redeemer_id_trgm
+  ON se_si.licences USING gin (redeemer_id extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_country_trgm
+  ON se_si.licences USING gin (country extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_licence_type_trgm
+  ON se_si.licences USING gin (licence_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_note_trgm
+  ON se_si.licences USING gin (note extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_note_type_trgm
+  ON se_si.licences USING gin (note_type extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_note_url_trgm
+  ON se_si.licences USING gin (note_url extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_site_address_1_trgm
+  ON se_si.licences USING gin (site_address_1 extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_site_address_2_trgm
+  ON se_si.licences USING gin (site_address_2 extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_site_country_trgm
+  ON se_si.licences USING gin (site_country extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_site_name_trgm
+  ON se_si.licences USING gin (site_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_site_postcode_trgm
+  ON se_si.licences USING gin (site_postcode extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_site_city_trgm
+  ON se_si.licences USING gin (site_city extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_postcode_trgm
+  ON se_si.licences USING gin (postcode extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_city_trgm
+  ON se_si.licences USING gin (city extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_status_trgm
+  ON se_si.licences USING gin (status extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_website_trgm
+  ON se_si.licences USING gin (website extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_host_trgm
+  ON se_si.licences USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_host_lower
+  ON se_si.licences (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_host_reverse
+  ON se_si.licences (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW se_si.current_licences AS
   SELECT address_1, address_2, operator, shop_id, redeemer_id, country, valid_from, valid_to, licence_type, note, note_type, note_url, site_address_1, site_address_2, site_country, site_name, site_postcode, site_city, postcode, city, status, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM se_si.licences WHERE removed_snapshot_id IS NULL;
@@ -1135,6 +1484,16 @@ CREATE INDEX IF NOT EXISTS licences_removed
   ON sk_urhh.licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS licences_current_id
   ON sk_urhh.licences (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_company_trgm
+  ON sk_urhh.licences USING gin (company extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_company_id_trgm
+  ON sk_urhh.licences USING gin (company_id extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_game_name_trgm
+  ON sk_urhh.licences USING gin (game_name extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_game_codes_trgm
+  ON sk_urhh.licences USING gin (registerwatch_private.array_text(game_codes) extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS licences_game_types_trgm
+  ON sk_urhh.licences USING gin (game_types extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW sk_urhh.current_licences AS
   SELECT seq, company, company_id, valid_from, valid_to, game_name, game_codes, game_types, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM sk_urhh.licences WHERE removed_snapshot_id IS NULL;
@@ -1169,6 +1528,18 @@ CREATE INDEX IF NOT EXISTS internet_gaming_sites_removed
   ON us_nj_dge.internet_gaming_sites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS internet_gaming_sites_current_id
   ON us_nj_dge.internet_gaming_sites (id) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS internet_gaming_sites_licensee_trgm
+  ON us_nj_dge.internet_gaming_sites USING gin (licensee extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS internet_gaming_sites_site_trgm
+  ON us_nj_dge.internet_gaming_sites USING gin (site extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS internet_gaming_sites_host_trgm
+  ON us_nj_dge.internet_gaming_sites USING gin (host extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS internet_gaming_sites_host_lower
+  ON us_nj_dge.internet_gaming_sites (lower(host)) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS internet_gaming_sites_host_reverse
+  ON us_nj_dge.internet_gaming_sites (reverse(lower(host)) text_pattern_ops) WHERE removed_snapshot_id IS NULL;
+CREATE INDEX IF NOT EXISTS internet_gaming_sites_status_trgm
+  ON us_nj_dge.internet_gaming_sites USING gin (status extensions.gin_trgm_ops) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW us_nj_dge.current_internet_gaming_sites AS
   SELECT licensee, site, host, status, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM us_nj_dge.internet_gaming_sites WHERE removed_snapshot_id IS NULL;

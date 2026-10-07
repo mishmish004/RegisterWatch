@@ -136,10 +136,9 @@ def _snapshot(c, source_id: int, complete: bool = True) -> int:
         canonical_hash=None, parsed=complete)
 
 
-def three_engine_runs(db, store_dir, monkeypatch):
-    """gb_ukgc through the whole engine, real SQL, fake HTTP: a baseline, a run
-    that revokes 103 and renumbers 102's licence, then a run that fails (503).
-    Returns the three IngestResults."""
+def engine_on_fake_http(db, store_dir, monkeypatch):
+    """gb_ukgc through the whole engine, real SQL, fake HTTP. Returns `run()`,
+    which ingests it once, and the {url: (status, body)} it is served from."""
     import hashlib
 
     from registerwatch.ingest import engine
@@ -159,13 +158,25 @@ def three_engine_runs(db, store_dir, monkeypatch):
 
     monkeypatch.setattr(engine, "fetch_one", fake_fetch_one)
     store = LocalBlobs(store_dir)
-    run = lambda: engine.ingest(gb_ukgc.REGISTER, store, force=True)  # noqa: E731
+    return (lambda: engine.ingest(gb_ukgc.REGISTER, store, force=True)), responses
 
+
+# The second run's change: 103 is revoked and 102's licence renumbered.
+def revoke_103(licences: bytes) -> bytes:
+    return (licences.replace(b'"103","000103-R-100000-001","Active"', b'"103","000103-R-100000-001","Revoked"')
+            .replace(b"000102-N-317976-010", b"000102-N-317976-011"))
+
+
+def three_engine_runs(db, store_dir, monkeypatch):
+    """gb_ukgc through the whole engine, real SQL, fake HTTP: a baseline, a run
+    that revokes 103 and renumbers 102's licence, then a run that fails (503).
+    Returns the three IngestResults."""
+    from tests import test_engine as te
+
+    run, responses = engine_on_fake_http(db, store_dir, monkeypatch)
     first = run()
     assert first.complete, first.reason
-    responses[te.LIC] = (200, te.LICENCES
-                         .replace(b'"103","000103-R-100000-001","Active"', b'"103","000103-R-100000-001","Revoked"')
-                         .replace(b"000102-N-317976-010", b"000102-N-317976-011"))
+    responses[te.LIC] = (200, revoke_103(te.LICENCES))
     second = run()
     assert second.complete and not second.unchanged
     responses[te.LIC] = (503, None)

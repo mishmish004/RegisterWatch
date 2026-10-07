@@ -1,9 +1,9 @@
 """Phase 3: every error from /v1 is an RFC 9457 problem from the one catalog,
 parameters are bounded, and every request has an id (plan.md P3.1-P3.3).
 
-Each catalog entry is triggered through a real v1 route. Entries whose feature
-lands later (ingest runs, scopes, rate limits) are raised from a real route by a
-patch for now; the phase that adds the feature adds its real trigger (`LATER`).
+Each catalog entry is triggered through a real v1 route. An entry whose feature
+lands later is raised from a real route by a patch until then; the phase that
+adds the feature adds its real trigger (`LATER`, empty since P7).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from psycopg_pool import PoolTimeout
 from pydantic import TypeAdapter, ValidationError
 
 from registerwatch import api
-from registerwatch.http import deps, problems, request_id
+from registerwatch.http import deps, problems, ratelimit, request_id
 from registerwatch.http.problems import Catalog, ProblemError
 from registerwatch.http.v1 import registers as v1_registers
 from registerwatch.ingest import runs
@@ -33,7 +33,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 ROWS = "/v1/registers/gb_ukgc/tables/licences/rows"
 
 # Raised by a patch until the named phase adds the feature that raises it.
-LATER = {Catalog.RATE_LIMITED: "P7"}
+LATER: dict[Catalog, str] = {}
 INGEST = {"Authorization": "Bearer ingest-token"}
 RUNS = "/v1/ingest-runs"
 RUN_ID = "0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11"
@@ -116,6 +116,12 @@ def _trigger(entry: Catalog, client, monkeypatch) -> tuple[str, str, dict]:
         case Catalog.QUERY_TIMEOUT:
             monkeypatch.setattr(api.query, "row_page", _raise(psycopg.errors.QueryCanceled("canceling statement")))
             return "GET", ROWS, {}
+        case Catalog.RATE_LIMITED:
+            client.cfg.rate_limit_read_per_min, client.cfg.rate_limit_search_per_min = 1, 0
+            client.cfg.rate_limit_ingest_per_min = 0
+            monkeypatch.setattr(ratelimit, "settings", lambda: client.cfg)
+            assert client.get("/v1/registers").status_code == 200  # the minute's one read
+            return "GET", "/v1/registers", {}
     raise AssertionError(f"no trigger for {entry}")
 
 
@@ -139,6 +145,8 @@ def test_every_catalog_entry_is_a_problem(entry, client, monkeypatch):
         assert r.headers["retry-after"] == "5"
     if entry is Catalog.INGEST_IN_PROGRESS:
         assert r.headers["retry-after"] == "60" and body["active_run"] == f"{RUNS}/{RUN_ID}"
+    if entry is Catalog.RATE_LIMITED:
+        assert int(r.headers["retry-after"]) >= 1 and r.headers["ratelimit"].startswith('"read";r=0;')
     if entry.status == 400:
         assert body["errors"] and {"field", "location", "message"} <= set(body["errors"][0])
 

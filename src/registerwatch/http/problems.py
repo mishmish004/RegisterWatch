@@ -238,6 +238,8 @@ RESPONSES = {
     503: ("ServiceUnavailable", "The database cannot be reached (retry after `Retry-After` seconds), "
                                 "or ingest is not configured on this deployment",
           [Catalog.DATABASE_UNAVAILABLE, Catalog.INGEST_DISABLED]),
+    504: ("QueryTimeout", "A query ran past the statement timeout and was cancelled; narrow the request, or "
+                          "retry after `Retry-After` seconds", [Catalog.QUERY_TIMEOUT]),
 }
 _RETRY = {"Retry-After": {"description": "Seconds to wait before retrying", "schema": {"type": "integer"}}}
 _CHALLENGE = {"WWW-Authenticate": {
@@ -260,11 +262,11 @@ def components() -> dict[str, Any]:
         if p is Catalog.INVALID_PARAMETER:
             example["errors"] = [{"field": "limit", "location": "query",
                                   "message": "Input should be less than or equal to 1000"}]
+        headers = {**(_RETRY if status in (409, 429, 503, 504) else {}), **(_CHALLENGE if status == 401 else {})}
         out[name] = {
             "description": description + ". Types: " + ", ".join(f"`{q.slug}`" for q in problems),
             "content": {MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}, "example": example}},
-            **({"headers": _RETRY} if status in (409, 429, 503) else {}),
-            **({"headers": _CHALLENGE} if status == 401 else {}),
+            **({"headers": headers} if headers else {}),
         }
     return out
 
@@ -280,4 +282,5 @@ _EXAMPLE_DETAIL = {
     Catalog.RATE_LIMITED: "60 requests per minute for /v1/search; retry in 12 s",
     Catalog.INTERNAL: "something went wrong on our side; quote request_id if you report it",
     Catalog.DATABASE_UNAVAILABLE: "the database cannot be reached right now; retry shortly",
+    Catalog.QUERY_TIMEOUT: "the query was cancelled for taking too long; narrow it and retry",
 }

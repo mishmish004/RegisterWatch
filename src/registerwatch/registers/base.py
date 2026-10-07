@@ -53,6 +53,12 @@ class DiscoveryError(RuntimeError):
         self.status = status
 
 
+# Columns that hold one hostname (`host`) or a list of them (`hosts`), by name.
+# Domain lookups read these, and the DDL indexes the scalar ones for them.
+DOMAIN_COLUMNS = ("host", "domain")
+DOMAIN_ARRAY_COLUMNS = ("hosts",)
+
+
 @dataclass(frozen=True)
 class Column:
     name: str
@@ -60,10 +66,19 @@ class Column:
     # A required column must be non-empty in (nearly) every row. Most rows
     # missing it means the layout moved and the parser is reading the wrong cell.
     required: bool = False
+    # A text or text[] column that a substring search (`q`) looks in, and that
+    # gets a trigram index for it. Turn it off for a column that is only noise in
+    # a search, or too large to index; `q` then no longer finds text there.
+    searchable: bool = True
 
     def __post_init__(self) -> None:
         if not _IDENT.match(self.name):
             raise ValueError(f"column name {self.name!r} is not a safe SQL identifier")
+
+    @property
+    def searched(self) -> bool:
+        """Does `q` look in this column (and so does it have a trigram index)?"""
+        return self.searchable and self.type in ("text", "text[]")
 
 
 @dataclass(frozen=True)

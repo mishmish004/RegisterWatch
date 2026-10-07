@@ -98,6 +98,18 @@ def source_health(conn: Connection) -> list[dict[str, Any]]:
     ).fetchall()
 
 
+def data_versions(conn: Connection) -> list[dict[str, Any]]:
+    """Per source: the newest complete snapshot (what its current rows are as
+    of) and the newest snapshot of any kind (what its freshness and history
+    are as of), 0 for none. Snapshot ids only grow, so a changed answer means
+    changed data. One statement for every register."""
+    return conn.execute(
+        "SELECT s.slug, coalesce(max(r.id) FILTER (WHERE r.complete), 0) AS complete, "
+        "coalesce(max(r.id), 0) AS latest "
+        "FROM sources s LEFT JOIN raw_snapshots r ON r.source_id = s.id GROUP BY s.slug"
+    ).fetchall()
+
+
 def insert_snapshot(
     conn: Connection,
     *,

@@ -97,8 +97,10 @@ for a new request.
 
 ## rate-limited
 
-**429.** Too many requests for this token (or client address, where reads are open). Wait
-`Retry-After` seconds.
+**429.** Too many requests for this token (or client address, without a token of this
+deployment's). Wait `Retry-After` seconds. Every limited response carries `RateLimit-Policy`
+(the quota) and `RateLimit` (`r` requests left, more in `t` seconds), so a client can slow down
+before it gets here.
 
 ## internal
 

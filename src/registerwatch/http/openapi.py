@@ -7,6 +7,9 @@
 - The error responses (`components.responses`, and the `Problem` schema they
   share) come from the catalog in http/problems.py. v1 operations refer to
   them; FastAPI's default 422 is dropped from v1, which answers 400 instead.
+- Response headers no route declares: every v1 answer carries the rate limit
+  fields (http/ratelimit.py) and `Cache-Control`; reads also an `ETag` and a
+  304 for `If-None-Match` (http/caching.py).
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from typing import Any
 from fastapi import FastAPI
 from pydantic import BaseModel
 
-from registerwatch.http import models, problems
+from registerwatch.http import caching, models, problems, ratelimit
 
 
 def install(app: FastAPI) -> None:
@@ -33,6 +36,7 @@ def install(app: FastAPI) -> None:
                 if isinstance(extra, dict) and "examples" in extra and name in schemas:
                     schemas[name]["examples"] = extra["examples"]
             _problems(app.openapi_schema)  # type: ignore[arg-type]
+            _headers(app.openapi_schema)  # type: ignore[arg-type]
         return app.openapi_schema  # type: ignore[return-value]
 
     app.openapi = openapi  # type: ignore[method-assign]
@@ -59,3 +63,26 @@ def _problems(spec: dict[str, Any]) -> None:
     if not any("422" in op.get("responses", {}) for item in spec.get("paths", {}).values() for op in item.values()):
         schemas.pop("HTTPValidationError", None)
         schemas.pop("ValidationError", None)
+
+
+def _headers(spec: dict[str, Any]) -> None:
+    components = spec["components"]
+    components["headers"] = {**caching.HEADERS, **ratelimit.HEADERS}
+    ref = {name: {"$ref": f"#/components/headers/{name}"} for name in components["headers"]}
+    limits = {name: ref[name] for name in ratelimit.HEADERS}
+    for response in components["responses"].values():
+        response["headers"] = {**response.get("headers", {}), **limits}
+    components["responses"]["NotModified"] = {**caching.NOT_MODIFIED,
+                                              "headers": {**caching.NOT_MODIFIED["headers"], **limits}}
+    for path, item in spec.get("paths", {}).items():
+        if not path.startswith("/v1/"):
+            continue
+        for method, op in item.items():
+            read = method == "get" and op.get("tags") != ["ingest"]
+            for status, response in op["responses"].items():
+                if status.startswith("2"):
+                    response["headers"] = {**response.get("headers", {}), "Cache-Control": ref["Cache-Control"],
+                                           **({"ETag": ref["ETag"]} if read else {}), **limits}
+            if read:
+                op["responses"]["304"] = {"$ref": "#/components/responses/NotModified"}
+                op["responses"] = dict(sorted(op["responses"].items()))

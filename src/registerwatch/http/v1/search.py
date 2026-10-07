@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from registerwatch import query
+from registerwatch.http.caching import conditional
 from registerwatch.http.deps import (
     JURISDICTION,
     connection,
@@ -22,13 +23,16 @@ router = APIRouter(dependencies=[Depends(require_read), Depends(known_parameters
 
 
 @router.get("/search", operation_id="search", tags=["search"],
-            summary="Find text in every register's current rows", responses=responses(400, 401, 429, 500, 503))
+            summary="Find text in every register's current rows", responses=responses(400, 401, 429, 500, 503, 504))
 def search(
+    request: Request,
+    response: Response,
     q: str = Query(..., min_length=2, max_length=200, description="Case-insensitive substring"),
     jurisdiction: list[str] | None = JURISDICTION,
     limit: int = Query(20, ge=1, le=100, description="Rows returned per table"),
 ) -> SearchHitPage:
     regs = registers_for(jurisdiction)
+    conditional(request, response, regs)
     with connection() as conn:
         hits = query.search_tables(conn, q, regs, limit=limit)
     data = [SearchHit(

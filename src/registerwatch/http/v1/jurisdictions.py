@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Path, Request, Response
 
 from registerwatch import jurisdictions
 from registerwatch.http import paging
+from registerwatch.http.caching import conditional
 from registerwatch.http.deps import (
     Timestamp,
     freshness,
@@ -25,7 +26,8 @@ CODE = Path(description="Jurisdiction code, any case, `-` or `_`: `gb`, `US-NJ`,
 
 @router.get("/jurisdictions", operation_id="listJurisdictions", tags=["jurisdictions"],
             summary="List jurisdictions", responses=ERRORS)
-def list_jurisdictions() -> JurisdictionPage:
+def list_jurisdictions(request: Request, response: Response) -> JurisdictionPage:
+    conditional(request, response)
     data = [Jurisdiction.of(code, regs) for code, regs in jurisdictions.by_code().items()]
     return JurisdictionPage(data=data, pagination=Pagination.whole(data))
 
@@ -33,8 +35,9 @@ def list_jurisdictions() -> JurisdictionPage:
 @router.get("/jurisdictions/{code}", operation_id="getJurisdiction", tags=["jurisdictions"],
             summary="Get a jurisdiction with its registers and their freshness",
             responses={**ERRORS, **responses(404)})
-def get_jurisdiction(code: str = CODE) -> JurisdictionDetail:
+def get_jurisdiction(request: Request, response: Response, code: str = CODE) -> JurisdictionDetail:
     regs = jurisdiction_or_404(code)
+    conditional(request, response, regs, freshness=True)
     return JurisdictionDetail.of(code, regs, freshness())
 
 
@@ -42,7 +45,7 @@ def get_jurisdiction(code: str = CODE) -> JurisdictionDetail:
             summary="Rows added and removed across a jurisdiction's registers, oldest first",
             description="Registers interleave by when their snapshots were recorded. Each register's first "
                         "complete snapshot is its baseline, not a change.",
-            responses={**ERRORS, **responses(404)})
+            responses={**ERRORS, **responses(404, 504)})
 def list_jurisdiction_changes(request: Request, response: Response, code: str = CODE,
                               since: Timestamp | None = SINCE, until: Timestamp | None = UNTIL,
                               limit: int = paging.LIMIT, cursor_: str | None = paging.CURSOR) -> ChangePage:

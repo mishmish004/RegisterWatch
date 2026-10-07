@@ -10,6 +10,7 @@ from fastapi import Query, Request, Response
 
 from registerwatch import query
 from registerwatch.http import cursor, paging
+from registerwatch.http.caching import conditional
 from registerwatch.http.deps import Timestamp, connection
 from registerwatch.http.models import ChangeEvent, ChangePage
 from registerwatch.http.problems import invalid
@@ -27,6 +28,7 @@ def feed(request: Request, response: Response, regs: list[Register], over: tuple
     scope = cursor.scope_of("changes", *over, since, until)
     at = paging.position(token, scope)
     after = _key(at["k"]) if at is not None else None
+    conditional(request, response, regs)
     with connection() as conn:
         events = query.change_feed(conn, regs, since=since, until=until, after=after, limit=limit)
     last = list(events[limit - 1]["key"]) if len(events) > limit else None

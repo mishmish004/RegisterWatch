@@ -601,6 +601,20 @@ process for 30 s). ETag = `W/"<sha256 of sorted (slug, snapshot_id) + request pa
 - T7.1.c `Cache-Control: public, max-age=300` when `READ_TOKEN` is empty; `private, max-age=300` when set. `Vary: Authorization, Accept-Encoding` always.
 - T7.1.d Ingest and status responses carry `Cache-Control: no-store`.
 
+As built (`http/caching.py`): one query reads every register's newest complete snapshot
+*and* newest snapshot of any kind, kept 30 s; after a failed lookup, reads go untagged for 5 s
+rather than each waiting on the database. Current rows, the change feeds, search and domains
+use the complete one. Snapshot history uses the newest of any kind, since it lists failed runs.
+So does freshness (`getRegister`, `getJurisdiction`), whose ETags also turn over every 5 minutes
+because `failed_7d` is a rolling window. The register catalogue (`listRegisters`, `getTable`,
+`listJurisdictions`) depends on no snapshot. The hash also covers a salt: the package version
+and every source file in it. A deploy that renders responses differently therefore never
+revalidates an old rendering. A 304 is answered after the request's own checks (a bad
+parameter is still its 400), reads no rows, and carries `ETag`, `Cache-Control` and `Vary`. The
+spec documents the 304, `ETag` and `Cache-Control` on every v1 read. `no-store` is set by path:
+v1 and legacy ingest (`GET /v1/ingest-runs` included), `/status`, `/health`, and the Phase 8
+`/v1/status`, `/livez` and `/readyz` already. Legacy reads get no cache headers.
+
 **P7.2 Rate limits.**
 Token-bucket per key (token hash, or client IP from the trusted proxy header, see P10.2),
 kept in process. Limits are per replica, which is acceptable at this scale and is
@@ -609,6 +623,22 @@ documented as such; a shared store is not needed. Limits as in 2.3, configurable
 - T7.2.b Every response carries `RateLimit-Policy` and `RateLimit` headers whose remaining value decreases by 1 per request.
 - T7.2.c Two different tokens have independent buckets.
 - T7.2.d `/livez` and `/readyz` are never limited (1,000 requests, all 200).
+
+As built (`http/ratelimit.py`): a plain ASGI middleware inside the request id one, so a 429
+carries `X-Request-Id`, and outside the app, so 304s, 4xx and 5xx all count. Classes: `search`
+(`/v1/search`, `/v1/domains`, legacy `/search` and `/check/domain`), `ingest` (POST to start a
+run, v1 or legacy; watching runs is a read) and `read` (everything else). The key is the
+SHA-256 of a bearer token this deployment issued. Any other request is keyed by its client
+address, so an invented token buys no fresh bucket. Behind a proxy that address is the proxy's
+until uvicorn trusts its header (P9.2, P10.2). A bucket holds a minute's quota and refills
+continuously. So T7.2.a is a burst: 60 searches, then the 61st is refused, and one more is
+allowed each second after that. Headers follow draft-ietf-httpapi-ratelimit-headers-11:
+`RateLimit-Policy: "search";q=60;w=60` and `RateLimit: "search";r=…;t=…`, where `t` is the
+seconds until one more request is available (0 when full). `Retry-After` equals `t` on a 429.
+Legacy routes answer it as `{"detail": ...}`. A quota of 0 switches its class off. The
+`rate-limited` problem now has a real trigger in `test_errors.py`. `/livez` and `/readyz`
+arrive in Phase 8 and are exempt by path already. T7.2.d sends 1,000 to legacy `/health`
+(all 200, no headers) and 50 to each of the other two (none limited).
 
 **P7.3 Query cost controls.**
 `SET LOCAL statement_timeout = '5s'` in read transactions (`READ_STATEMENT_TIMEOUT_MS`);
@@ -620,6 +650,33 @@ a `reverse(lower(host)) text_pattern_ops` index for the subdomain match in `/v1/
 - T7.3.b **[pg]** `EXPLAIN` of the domain query on `gb_ukgc.domain_names` uses the reverse index (no seq scan).
 - T7.3.c **[pg]** `SELECT pg_sleep(10)` through the read path → 504 `query-timeout` after ~5 s (assert elapsed < 6 s).
 - T7.3.d **[pg]** p95 latency of `/v1/search?q=bet` over 50 calls on the fixture-loaded DB < 300 ms (recorded number in evidence).
+
+As built: `db.engine.read_tx` sets the timeout with `SET LOCAL`, which ends with the
+transaction and is all Supabase's transaction pooler allows. Every v1 transaction uses it,
+the data-version lookup included. Legacy routes keep `tx` and their old behaviour until they
+go. `QueryCanceled` is a 504 `query-timeout` with `Retry-After: 5`, now documented on every v1
+operation that runs a query. `searchable` defaults to true: every text column `q` already
+searched gets its index, and `searchable=False` takes a column out of both. text[] columns
+are searched through `registerwatch_private.array_text`. It is an IMMUTABLE wrapper of
+`array_to_string` (which is only STABLE, so it cannot be indexed), and its schema is not
+exposed by PostgREST. `pg_trgm` goes in the `extensions` schema, as Supabase installs it. All
+lookup indexes are partial on current rows, which is all the queries read. The domain match
+is `lower(host) = ANY(…) OR reverse(lower(host)) LIKE reverse('.x') || '%'`, with `_` and `%`
+in the target escaped. The same test runs on each element of a `hosts` array; only `cz_mf`
+has one, and that one reads its current rows. The DDL is migration
+`20261007000009_register_schemas.sql` (146 trigram, 18 `lower` and 18 reverse indexes); the
+package drops `…000007`, which it supersedes. If `pg_trgm` is already installed in another
+schema, `IF NOT EXISTS` leaves it there and the migration fails on `extensions.gin_trgm_ops`.
+Move it first with `ALTER EXTENSION pg_trgm SET SCHEMA extensions` (it is relocatable).
+
+The planner prices a trigram scan by its GIN pending list. Just after a bulk insert, and
+before autovacuum merges the list, it may choose a sequential scan, rightly. The plan tests
+therefore settle the table first (`gin_clean_pending_list`, `ANALYZE`). They also grow it
+with 5,000 synthetic rows in a rolled-back transaction, since on a few fixture rows any plan
+is a sequential scan. A further test checks every searched column of every register
+against its own index, with the other partial indexes dropped (rolled back) and full scans
+priced out. T7.3.c runs the app's real pool and `read_tx`, with the row query replaced by
+`pg_sleep(10)`.
 
 Checklist
 - [ ] T7.1.a 304 on matching ETag

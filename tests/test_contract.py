@@ -155,6 +155,11 @@ RESOURCE_IDS = {"code", "slug", "table", "id"}
 # reused Idempotency-Key.
 INGEST_ERRORS = {"createIngestRun": {"403", "404", "409", "415", "422"},
                  "listIngestRuns": {"403"}, "getIngestRun": {"403"}}
+# Operations whose queries run under the read statement timeout and would rather
+# fail than degrade: a cancelled one is a 504 (plan.md P7.3). The rest read no
+# rows, or only freshness, which degrades to null.
+QUERY_TIMEOUTS = {"listJurisdictionChanges", "listRows", "getRow", "listRegisterChanges", "listSnapshots",
+                  "search", "getDomainStatus", *INGEST_ERRORS}
 
 
 def test_error_responses_documented():
@@ -166,8 +171,9 @@ def test_error_responses_documented():
         path_ids = {q["name"] for q in op.get("parameters", []) if q["in"] == "path"} & RESOURCE_IDS
         # 400 everywhere: an operation without parameters still refuses undeclared ones.
         want = ({"400", "401", "429", "500", "503"} | ({"404"} if path_ids else set())
-                | INGEST_ERRORS.get(op["operationId"], set()))
-        errors = {s for s in op["responses"] if not s.startswith("2")}
+                | INGEST_ERRORS.get(op["operationId"], set())
+                | ({"504"} if op["operationId"] in QUERY_TIMEOUTS else set()))
+        errors = {s for s in op["responses"] if s[0] in "45"}
         if errors != want:
             wrong[f"{m} {p}"] = sorted(errors ^ want)
         for s in errors:
@@ -180,8 +186,8 @@ def test_error_responses_documented():
 def test_error_response_examples_are_problems():
     from registerwatch.http import models, problems
 
-    for name, resp in api.app.openapi()["components"]["responses"].items():
-        media = resp["content"][problems.MEDIA_TYPE]
+    for name, _, _ in problems.RESPONSES.values():
+        media = api.app.openapi()["components"]["responses"][name]["content"][problems.MEDIA_TYPE]
         assert media["schema"] == {"$ref": "#/components/schemas/Problem"}, name
         models.Problem.model_validate(media["example"])
         assert media["example"]["type"].startswith(problems.DOCS + "#")
