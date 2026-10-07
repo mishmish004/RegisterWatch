@@ -147,7 +147,7 @@ if wanted T9.1.d; then
     local c; c=$(docker create "$1"); echo "$(docker export "$c" | wc -c) $(docker image inspect -f '{{.Size}}' "$1")"
     docker rm "$c" >/dev/null
   }
-  store=$(docker info -f '{{range .DriverStatus}}{{index . 1}} {{end}}' 2>/dev/null)
+  store=$(docker info -f '{{.Driver}}' 2>/dev/null)  # overlayfs: the containerd store; overlay2: classic
   read -r unpacked inspect <<<"$(size_of "$IMAGE")"
   mb() { awk -v b="$1" 'BEGIN { printf "%.1f MB", b / 1e6 }'; }
   # On the classic store .Size is the unpacked layers; the containerd store adds

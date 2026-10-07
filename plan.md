@@ -858,9 +858,10 @@ As built: `SHUTDOWN_GRACE_S` (60) is the one setting; `--timeout-graceful-shutdo
 plus 5. On SIGTERM uvicorn closes its listening socket (a new connection is refused) and its idle
 connections, the run finishes the register in hand and records `partial`, and requests in flight
 finish. What still runs when uvicorn stops waiting cannot be stopped: a register past the grace, or
-a handler's thread waiting on a database that stopped answering. The event loop waits for such a
-thread before it closes, and the interpreter before it exits, so the process would outlive its bound
-until the platform killed it. The lifespan's shutdown therefore arms a 4 s daemon timer
+a handler's thread waiting on a database that stopped answering. Uvicorn cancels the request, but
+its thread runs on, and the interpreter waits for it before exiting (anyio's worker threads are not
+daemons), so the process would outlive its bound: with the timer below taken out, SHUTDOWN_GRACE_S=5
+and a 20 s register, the stop took 17.2 s. The lifespan's shutdown therefore arms a 4 s daemon timer
 (`runs.leave_after`) that logs the threads still busy and exits 1: with the defaults the process is
 gone by SHUTDOWN_GRACE_S + 9. Only the server's own process arms it (where `stop_on_sigterm` could
 install its handler, on the main thread), never a test client. The run left behind stays `running`,
@@ -883,10 +884,10 @@ VmRSS from `/proc/1/status` beside `docker stats`. `load.py` keeps at most `--co
 requests in flight, each latency still counted from when it was due. The first version had no cap,
 and it buried the server: once the server fell behind, the client opened ever more connections,
 past `--limit-concurrency`, and httpx's pool spent all its time on thousands of waiting requests.
-Here one worker serves about 42 of these pages a second (about 25 ms of CPU each, on one core),
-so 50 rps saturates it: the 6,000 requests took 143 s, p50 9.4 s. That is recorded, not a T9.4
-criterion; Phase 10's latency budget (T10.6) will have to answer it, with smaller pages or more
-workers. The descriptors left 10 s after the load are the read pool, grown to DB_POOL_MAX, which
+Here one worker serves about 40 of these pages a second (about 25 ms of CPU each, on one core),
+so 50 rps saturates it: in two runs the 6,000 requests took 143 and 152 s, p50 9.4 and 15.9 s.
+That is recorded, not a T9.4 criterion; Phase 10's latency budget (T10.6) will have to answer it,
+with smaller pages or more workers. The descriptors left 10 s after the load are the read pool, grown to DB_POOL_MAX, which
 keeps its connections until they have been idle for 10 minutes.
 
 Checklist

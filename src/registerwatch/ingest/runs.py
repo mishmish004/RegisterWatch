@@ -216,11 +216,11 @@ def leave_after(seconds: float) -> threading.Timer:
 
     For the server's shutdown, once uvicorn has stopped waiting. What still runs
     then cannot be stopped: a register past the grace, or a request thread
-    waiting on a database that stopped answering. The event loop waits for such
-    a thread before it closes, and the interpreter for any thread before it
-    exits, so without this the process would outlive its bound until the
-    platform kills it. The timer is a daemon: a process that exits in time
-    takes it along."""
+    waiting on a database that stopped answering. Uvicorn cancels the request,
+    but its thread runs on, and the interpreter waits for it before it exits
+    (anyio's worker threads are not daemons): without this the process would
+    outlive its bound until the thread ends or the platform kills it. The timer
+    is a daemon: a process that exits in time takes it along."""
 
     def leave() -> None:
         busy = sorted(t.name for t in threading.enumerate()
