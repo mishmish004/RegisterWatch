@@ -7,9 +7,13 @@
 - The error responses (`components.responses`, and the `Problem` schema they
   share) come from the catalog in http/problems.py. v1 operations refer to
   them; FastAPI's default 422 is dropped from v1, which answers 400 instead.
-- Response headers no route declares: every v1 answer carries the rate limit
-  fields (http/ratelimit.py) and `Cache-Control`; reads also an `ETag` and a
-  304 for `If-None-Match` (http/caching.py).
+- Response headers no route declares: every v1 answer but the probes' carries
+  the rate limit fields (http/ratelimit.py), and every one `Cache-Control`;
+  reads also an `ETag` and a 304 for `If-None-Match` (http/caching.py). The
+  status and the probes are never stored, so they have neither.
+
+The probes (`/livez`, `/readyz`) are unversioned paths but v1 operations, and
+are treated as such here.
 """
 
 from __future__ import annotations
@@ -42,6 +46,10 @@ def install(app: FastAPI) -> None:
     app.openapi = openapi  # type: ignore[method-assign]
 
 
+def _v1(path: str) -> bool:
+    return path.startswith("/v1/") or path in problems.PROBES
+
+
 def _problems(spec: dict[str, Any]) -> None:
     components = spec.setdefault("components", {})
     schemas = components.setdefault("schemas", {})
@@ -50,7 +58,7 @@ def _problems(spec: dict[str, Any]) -> None:
     schemas["Problem"] = problem
     components["responses"] = problems.components()
     for path, item in spec.get("paths", {}).items():
-        if not path.startswith("/v1/"):
+        if not _v1(path):
             continue
         for op in item.values():
             responses = op.get("responses", {})
@@ -75,14 +83,17 @@ def _headers(spec: dict[str, Any]) -> None:
     components["responses"]["NotModified"] = {**caching.NOT_MODIFIED,
                                               "headers": {**caching.NOT_MODIFIED["headers"], **limits}}
     for path, item in spec.get("paths", {}).items():
-        if not path.startswith("/v1/"):
+        if not _v1(path):
             continue
+        limited = path not in problems.PROBES
         for method, op in item.items():
-            read = method == "get" and op.get("tags") != ["ingest"]
+            # Ingest, the status and the probes are no-store: no validator to send back.
+            read = method == "get" and op.get("tags") not in (["ingest"], ["operations"])
             for status, response in op["responses"].items():
                 if status.startswith("2"):
                     response["headers"] = {**response.get("headers", {}), "Cache-Control": ref["Cache-Control"],
-                                           **({"ETag": ref["ETag"]} if read else {}), **limits}
+                                           **({"ETag": ref["ETag"]} if read else {}),
+                                           **(limits if limited else {})}
             if read:
                 op["responses"]["304"] = {"$ref": "#/components/responses/NotModified"}
                 op["responses"] = dict(sorted(op["responses"].items()))

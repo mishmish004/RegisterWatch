@@ -7,7 +7,8 @@ and every other failure under /v1, into `application/problem+json`. The spec's
 `components.responses` are generated from the same list (see http/openapi.py).
 
 Legacy routes keep FastAPI's `{"detail": ...}` bodies until they are removed,
-so the handlers only reformat requests under /v1.
+so the handlers only reformat requests under /v1 (and the probes, /livez and
+/readyz, which came with it).
 """
 
 from __future__ import annotations
@@ -113,9 +114,13 @@ def response(problem: Catalog, detail: str, request: Request, *, errors: list[di
                         headers=hdrs, media_type=MEDIA_TYPE)
 
 
+# Unversioned, but new with v1 (plan.md 2.2): they answer errors as problems too.
+PROBES = frozenset({"/livez", "/readyz"})
+
+
 def is_v1(request: Request) -> bool:
     path = request.scope.get("path", "")
-    return path == "/v1" or path.startswith("/v1/")
+    return path == "/v1" or path.startswith("/v1/") or path in PROBES
 
 
 # --- handlers ----------------------------------------------------------------------

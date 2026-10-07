@@ -487,3 +487,42 @@ class IngestRunPage(BaseModel):
         "next_cursor": None, "has_more": False, "limit": 100, "total": None}})
     data: list[IngestRun] = Field(description="Newest first")
     pagination: Pagination
+
+
+# --- status and probes -------------------------------------------------------------
+
+class RegisterStatus(BaseModel):
+    model_config = _examples({
+        "slug": "ch_esbk", "jurisdiction": "CH", "stale": True, "hours_since_good": 30.2,
+        "freshness": {"last_attempt_at": "2026-10-07T06:00:41Z", "last_good_at": "2026-10-06T04:47:03Z",
+                      "last_reason": "PAGE_GAP:0/1 blocklist:HTTP_503", "failed_7d": 3},
+        "url": "/v1/registers/ch_esbk"})
+    slug: str
+    jurisdiction: str
+    stale: bool = Field(description="No complete snapshot within `stale_after_h` hours: an old one, none ever, "
+                                    "or none known because the database cannot be reached")
+    hours_since_good: float | None = Field(description="Hours since `freshness.last_good_at`; null when there is "
+                                                       "no good snapshot, or it is unknown")
+    freshness: Freshness | None = Field(description="Null when the database cannot be reached")
+    url: str
+
+
+class Status(BaseModel):
+    """How fresh every register is. `stale` is the one field an uptime monitor needs."""
+
+    model_config = _examples({
+        "stale": True, "database": "ok", "stale_after_h": 26.0, "stale_registers": ["ch_esbk"],
+        "checked_at": "2026-10-07T10:02:13Z",
+        "registers": [RegisterStatus.model_config["json_schema_extra"]["examples"][0]]})
+    stale: bool = Field(description="Any register is stale, or the database cannot be reached")
+    database: Literal["ok", "unreachable"] = Field(
+        description="`unreachable`: no connection within the pool timeout, or the query failed")
+    stale_after_h: float = Field(description="A register is stale once its newest complete snapshot is older")
+    stale_registers: list[str]
+    checked_at: datetime
+    registers: list[RegisterStatus] = Field(description="Every register, by slug")
+
+
+class Probe(BaseModel):
+    model_config = _examples({"status": "ok"})
+    status: Literal["ok"]

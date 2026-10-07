@@ -973,6 +973,94 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
         '504':
           $ref: '#/components/responses/QueryTimeout'
+  /v1/status:
+    get:
+      tags:
+      - operations
+      summary: Freshness of every register
+      description: Always 200 unless `strict=true`. A register is stale once its newest complete snapshot
+        is older than `stale_after_h` hours, or when the database cannot be reached.
+      operationId: getStatus
+      parameters:
+      - name: strict
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Answer 503 when anything is stale, for uptime monitors
+          default: false
+          title: Strict
+        description: Answer 503 when anything is stale, for uptime monitors
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+          headers:
+            Cache-Control: *id001
+            RateLimit-Policy: *id003
+            RateLimit: *id004
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          description: '`strict=true` and something is stale: the same document, with a status code a
+            monitor can alarm on'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+      security: []
+  /livez:
+    get:
+      tags:
+      - operations
+      summary: The process is up
+      description: 'Touches nothing. For a liveness probe: failing it means restart the process.'
+      operationId: livez
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Probe'
+          headers:
+            Cache-Control: *id001
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+      security: []
+  /readyz:
+    get:
+      tags:
+      - operations
+      summary: The database answers
+      description: '`SELECT 1` through the read pool within 2 s. For a readiness probe: failing it means
+        send no traffic here for now.'
+      operationId: readyz
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Probe'
+          headers:
+            Cache-Control: *id001
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+      security: []
   /health:
     get:
       tags:
@@ -2029,6 +2117,18 @@ components:
         has_more: true
         limit: 100
         total: null
+    Probe:
+      properties:
+        status:
+          type: string
+          const: ok
+          title: Status
+      type: object
+      required:
+      - status
+      title: Probe
+      examples:
+      - status: ok
     Register:
       properties:
         slug:
@@ -2167,6 +2267,55 @@ components:
           has_more: false
           limit: 21
           total: 21
+    RegisterStatus:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        jurisdiction:
+          type: string
+          title: Jurisdiction
+        stale:
+          type: boolean
+          title: Stale
+          description: 'No complete snapshot within `stale_after_h` hours: an old one, none ever, or none
+            known because the database cannot be reached'
+        hours_since_good:
+          anyOf:
+          - type: number
+          - type: 'null'
+          title: Hours Since Good
+          description: Hours since `freshness.last_good_at`; null when there is no good snapshot, or it
+            is unknown
+        freshness:
+          anyOf:
+          - $ref: '#/components/schemas/Freshness'
+          - type: 'null'
+          description: Null when the database cannot be reached
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - slug
+      - jurisdiction
+      - stale
+      - hours_since_good
+      - freshness
+      - url
+      title: RegisterStatus
+      examples:
+      - &id016
+        slug: ch_esbk
+        jurisdiction: CH
+        stale: true
+        hours_since_good: 30.2
+        freshness:
+          last_attempt_at: '2026-10-07T06:00:41Z'
+          last_good_at: '2026-10-06T04:47:03Z'
+          last_reason: PAGE_GAP:0/1 blocklist:HTTP_503
+          failed_7d: 3
+        url: /v1/registers/ch_esbk
     RegisterSummary:
       properties:
         slug:
@@ -2551,6 +2700,57 @@ components:
           has_more: true
           limit: 1
           total: null
+    Status:
+      properties:
+        stale:
+          type: boolean
+          title: Stale
+          description: Any register is stale, or the database cannot be reached
+        database:
+          type: string
+          enum:
+          - ok
+          - unreachable
+          title: Database
+          description: '`unreachable`: no connection within the pool timeout, or the query failed'
+        stale_after_h:
+          type: number
+          title: Stale After H
+          description: A register is stale once its newest complete snapshot is older
+        stale_registers:
+          items:
+            type: string
+          type: array
+          title: Stale Registers
+        checked_at:
+          type: string
+          format: date-time
+          title: Checked At
+        registers:
+          items:
+            $ref: '#/components/schemas/RegisterStatus'
+          type: array
+          title: Registers
+          description: Every register, by slug
+      type: object
+      required:
+      - stale
+      - database
+      - stale_after_h
+      - stale_registers
+      - checked_at
+      - registers
+      title: Status
+      description: How fresh every register is. `stale` is the one field an uptime monitor needs.
+      examples:
+      - stale: true
+        database: ok
+        stale_after_h: 26.0
+        stale_registers:
+        - ch_esbk
+        checked_at: '2026-10-07T10:02:13Z'
+        registers:
+        - *id016
     TableSchema:
       properties:
         register:
@@ -2810,7 +3010,7 @@ components:
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
       headers:
-        Retry-After: &id016
+        Retry-After: &id017
           description: Seconds to wait before retrying
           schema:
             type: integer
@@ -2862,7 +3062,7 @@ components:
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
       headers:
-        Retry-After: *id016
+        Retry-After: *id017
         RateLimit-Policy: *id003
         RateLimit: *id004
     InternalError:
@@ -2896,7 +3096,7 @@ components:
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
       headers:
-        Retry-After: *id016
+        Retry-After: *id017
         RateLimit-Policy: *id003
         RateLimit: *id004
     QueryTimeout:
@@ -2914,7 +3114,7 @@ components:
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
       headers:
-        Retry-After: *id016
+        Retry-After: *id017
         RateLimit-Policy: *id003
         RateLimit: *id004
     NotModified:
@@ -2935,7 +3135,7 @@ components:
       example: W/"9f2c5d0e..."
     Cache-Control:
       description: '`public, max-age=300` when reads are open, `private, max-age=300` when the deployment
-        requires a read token; `no-store` on ingest operations'
+        requires a read token; `no-store` on ingest operations, the status and the probes'
       schema:
         type: string
     RateLimit-Policy:

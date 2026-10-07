@@ -152,6 +152,9 @@ pass `next_cursor` back as `cursor` for the next page (also in a `Link: rel="nex
 | `GET /v1/domains/{domain}` | `licensed_in`, `blocked_in` and each matching row |
 | `POST /v1/ingest-runs` | ingest token. Body `{"registers": [...]}`, `{"jurisdiction": "ch"}` or `{}` for all, plus `force`, `accept_count_delta`. 202 with the run and `Location`; 409 linking the active run (one at a time across every replica); `Idempotency-Key` replays the same run for 24 h |
 | `GET /v1/ingest-runs`, `/v1/ingest-runs/{id}` | ingest token. Runs newest first with per-register results; stored in Postgres, so they survive restarts. A run cut short by shutdown is `partial` with `not_started` |
+| `GET /v1/status` | open. Every register's freshness, `stale`, `stale_registers` and `database` (`ok` or `unreachable`). Always 200, so stale data never looks like a broken server; `?strict=true` answers the same document with **503** when anything is stale, for uptime monitors |
+| `GET /livez` | open, unversioned. The process answers; touches nothing. Point a liveness probe here |
+| `GET /readyz` | open, unversioned. The database answers `SELECT 1` within 2 s, else 503 `database-unavailable`. Point a readiness probe here |
 
 Errors from `/v1` are RFC 9457 problems (`application/problem+json`); each `type`
 links to its section of [docs/problems.md](docs/problems.md). A parameter an
@@ -173,6 +176,15 @@ live in each process, so every replica counts on its own, and behind a proxy
 that uvicorn does not trust (`FORWARDED_ALLOW_IPS`) all anonymous clients share
 the proxy's address. A v1 statement running past `READ_STATEMENT_TIMEOUT_MS`
 (5000) is cancelled: a 504 `query-timeout`.
+
+Reads share a pool of `DB_POOL_MAX` (10) connections; a request that waits
+`DB_POOL_TIMEOUT_S` (3) for one is a 503 `database-unavailable` with
+`Retry-After: 5`. Ingest runs have 2 connections of their own, so a batch never
+takes one a read needs, and the run lock one more: a process opens at most
+`DB_POOL_MAX + 3`, each named in `pg_stat_activity.application_name`
+(`registerwatch`, `registerwatch-ingest`, `registerwatch-lock`). Request
+handlers run in `2 × DB_POOL_MAX` threads, so a burst queues for a thread rather
+than timing out on the pool.
 
 **Reading** — open, or `Authorization: Bearer $READ_TOKEN` when set
 
@@ -198,7 +210,7 @@ the proxy's address. A v1 statement running past `READ_STATEMENT_TIMEOUT_MS`
 | | |
 |---|---|
 | `GET /health` | liveness; touches nothing |
-| `GET /status` | per register: last attempt, last good snapshot, last verdict. **503** if any register has no good snapshot within `STALE_AFTER_H` (26h), or the database is unreachable — point an uptime monitor at it |
+| `GET /status` | per register: last attempt, last good snapshot, last verdict. **503** if any register has no good snapshot within `STALE_AFTER_H` (26h), or the database is unreachable. Replaced by `/v1/status?strict=true` for uptime monitors and `/readyz` for probes |
 | `GET /registers` | every register with its schema, tables and columns |
 
 ## Daily schedule (Supabase)

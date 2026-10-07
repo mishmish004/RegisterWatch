@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from registerwatch.http.v1 import domains, ingest_runs, jurisdictions, registers, search
+from registerwatch.http.v1 import domains, ingest_runs, jurisdictions, registers, search, status
 
 router = APIRouter(prefix="/v1")
-for _module in (jurisdictions, registers, search, domains, ingest_runs):
+for _module in (jurisdictions, registers, search, domains, ingest_runs, status):
     router.include_router(_module.router)

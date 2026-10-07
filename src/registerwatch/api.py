@@ -20,6 +20,9 @@ Reading (open, or bearer READ_TOKEN when set)
 
 Health
   GET  /health   GET /status   GET /registers
+
+The v1 surface (registerwatch.http) is mounted here too: /v1/..., and the
+unversioned probes /livez and /readyz.
 """
 
 from __future__ import annotations
@@ -29,13 +32,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
+import anyio
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response, Security
 
 from registerwatch import __version__, jurisdictions, query, registers
 from registerwatch.config import settings
-from registerwatch.db.engine import pool, tx
+from registerwatch.db.engine import close_pools, thread_limit, tx
 from registerwatch.db.repos import snapshots as repo
-from registerwatch.http import caching, deps, guards, openapi, problems, ratelimit, request_id, v1
+from registerwatch.http import caching, deps, guards, openapi, probes, problems, ratelimit, request_id, v1
 from registerwatch.ingest import engine, runs
 from registerwatch.storage.blobs import make_store
 
@@ -55,11 +59,12 @@ async def lifespan(_: FastAPI):
         level=settings().log_level,  # also fails fast on a bad .env
         format="%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s",
     )
+    # Sync handlers run in anyio's worker threads; size them to the read pool (P8.2).
+    anyio.to_thread.current_default_thread_limiter().total_tokens = thread_limit()
     runs.stop_on_sigterm()
     runs.sweep_on_startup()
     yield
-    if pool.cache_info().currsize:
-        pool().close()
+    close_pools()
 
 
 app = FastAPI(
@@ -74,6 +79,7 @@ app = FastAPI(
     license_info={"name": "All rights reserved", "url": "https://choosealicense.com/no-permission/"},
 )
 app.include_router(v1.router)
+app.include_router(probes.router)
 openapi.install(app)
 problems.install(app)
 caching.install(app)

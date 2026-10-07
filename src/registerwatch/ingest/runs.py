@@ -28,7 +28,8 @@ import psycopg
 from psycopg.rows import dict_row
 
 from registerwatch.config import settings
-from registerwatch.db.engine import tx
+# The run's bookkeeping shares ingest's pool, never the read pool (plan.md P8.2).
+from registerwatch.db.engine import APP, ingest_tx as tx
 from registerwatch.db.repos import ingest_runs as repo
 from registerwatch.ingest import engine
 from registerwatch.registers.base import Register
@@ -42,8 +43,9 @@ STOP = threading.Event()
 
 
 def connect() -> psycopg.Connection:
-    """A connection of the run's own, outside the pool, for the advisory lock."""
-    return psycopg.connect(settings().database_url, autocommit=True, row_factory=dict_row, connect_timeout=5)
+    """A connection of the run's own, outside the pools, for the advisory lock."""
+    return psycopg.connect(settings().database_url, autocommit=True, row_factory=dict_row, connect_timeout=5,
+                           application_name=f"{APP}-lock")
 
 
 class Lease:

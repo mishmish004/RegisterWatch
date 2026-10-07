@@ -707,6 +707,27 @@ stale, the old behaviour for uptime monitors).
 - T8.1.b One stale register: `/readyz` 200, `/v1/status` 200 naming it, `?strict=true` 503.
 - T8.1.c The existing three `/status` tests pass unchanged against the legacy route.
 
+As built: the probes are `http/probes.py`, unversioned but v1 operations all the same
+(`livez`, `readyz`, tag `operations`, `security: []`): their errors are problems and the contract
+tests hold them to v1's rules. Neither is rate limited or stored. `/livez` is `async` and does
+nothing, so it answers on the event loop even while every request thread waits on the pool.
+`/readyz` is not "a 2 s pool timeout" but a 2 s deadline on the whole check (`anyio.fail_after`
+around `SELECT 1` through the read pool, on threads of its own). A pool timeout bounds only the
+wait for a connection. It does not bound a query on a connection whose server has stopped
+answering, and no database-side timeout can. A check still running at the deadline is left to
+finish on its own, and the probe answers 503 at 2 s either way. So with the read pool saturated
+`/readyz` is a 503 too: it cannot get a connection within 2 s, which is what not ready means.
+`/v1/status` (`getStatus`, `http/v1/status.py`) lists every register with `stale`,
+`hours_since_good` and the `freshness` object `getRegister` has, under `stale`, `database`
+(`ok`/`unreachable`), `stale_after_h`, `stale_registers` and `checked_at`. With the database
+unreachable, every register is stale with `freshness: null`. `?strict=true` answers the same
+document with a 503, not a problem: the request did not fail, it asked for staleness as a status
+code. Schemathesis' `not_a_server_error` counts any 5xx, so the contract test exempts exactly that
+case (a `getStatus` 503 whose body says `stale: true`); the other checks still hold it to the spec.
+An undeclared parameter is a 400 here as on every v1 operation, so a monitor's `?stict=true` is
+an error, not a quiet "not strict". T8.1.a patches nothing: the app's real pool points at a port
+where nothing listens (refused), or where the kernel accepts and nothing ever answers (hung).
+
 **P8.2 Pool sizing and starvation behaviour.**
 Pool `max_size` from `DB_POOL_MAX` (default 10), `timeout` from `DB_POOL_TIMEOUT_S`
 (default 3); ingest uses its own pool (`max_size=2`) so a batch cannot starve reads;
@@ -715,6 +736,23 @@ uvicorn/anyio thread limiter set to `DB_POOL_MAX * 2`. `PoolTimeout` → 503
 - T8.2.a **[pg]** With `DB_POOL_MAX=2`, 10 concurrent `pg_sleep(1)` reads: every response is 200 or 503 problem (none 500), and no response takes longer than `1 s × ceil(10/2) + DB_POOL_TIMEOUT_S`.
 - T8.2.b **[pg]** During a running ingest (fake engine holding its pool connection), 20 sequential reads all succeed.
 - T8.2.c **[pg]** `SELECT count(*) FROM pg_stat_activity WHERE application_name LIKE 'registerwatch%'` never exceeds `DB_POOL_MAX + 2 + 1` (reads + ingest + advisory lock) during T8.2.a. Set `application_name` in the pool kwargs for this.
+
+As built (`db/engine.py`): `pool()` for reads (min 1), `ingest_pool()` (min 0, so no idle
+connection between runs; 30 s timeout, since no client waits on it) and the run lock's own
+connection, named `registerwatch`, `registerwatch-ingest` and `registerwatch-lock`. The engine,
+the fetch limiter and the run bookkeeping all use `ingest_tx`, so legacy `?wait=true` and CLI
+ingests hold ingest connections, never read ones. The pools used to be `lru_cache`d, which can
+run the factory twice when requests arrive together, and each extra pool is `DB_POOL_MAX`
+connections nobody counts. They are now made under a lock, one per name, and closed and
+forgotten at shutdown. Uvicorn has no setting for anyio's thread limiter, so the app's lifespan
+sets it. `PoolTimeout` was already a 503 `database-unavailable` with `Retry-After: 5` (Phase 3's
+handler for `psycopg.OperationalError`). T8.2.a–c run the real app under uvicorn in the test
+process, with its real pools, threads and run lock, and a `pg_sleep(1)` before each rows query.
+T8.2.c repeats T8.2.a's burst while a run holds both ingest connections and its lock, so every
+term of the bound is in use at once. Each sync handler also needs a thread for its dependencies
+and to validate its response. Under saturation, a finished request therefore waits for a thread
+behind new ones: in T8.2.a, 8 of the 10 finished together at about 4 s. That is within the bound,
+and Phase 10's latency budget (T10.6) will measure it under real load.
 
 Checklist
 - [ ] T8.1.a probes behave with DB down

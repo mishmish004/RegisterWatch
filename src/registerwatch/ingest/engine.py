@@ -37,7 +37,8 @@ import httpx
 
 from registerwatch import canon
 from registerwatch.config import PROJECT_ROOT, settings
-from registerwatch.db.engine import tx
+# Ingest's own pool (plan.md P8.2): a batch never takes a connection a read needs.
+from registerwatch.db.engine import ingest_tx as tx
 from registerwatch.db.repos import observations
 from registerwatch.db.repos import snapshots as repo
 from registerwatch.fetch import limiter

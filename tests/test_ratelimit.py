@@ -212,10 +212,9 @@ def test_probes_are_never_limited(client):  # T7.2.d
     health = [client.get("/health") for _ in range(1000)]
     assert {r.status_code for r in health} == {200}
     assert not any("ratelimit" in r.headers for r in health)
-    # /livez and /readyz arrive in Phase 8 (404 until then); they are exempt by path already.
     for path in ("/livez", "/readyz"):
         answers = [client.get(path) for _ in range(50)]
-        assert 429 not in {r.status_code for r in answers} and not any("ratelimit" in r.headers for r in answers)
+        assert {r.status_code for r in answers} == {200} and not any("ratelimit" in r.headers for r in answers)
     assert client.get(ROWS).status_code == 200 and client.get(ROWS).status_code == 429
 
 

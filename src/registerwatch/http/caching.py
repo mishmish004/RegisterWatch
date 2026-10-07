@@ -46,7 +46,7 @@ MAX_AGE = 300
 VARY = "Authorization, Accept-Encoding"
 
 # Never stored by any cache: starting and watching ingest runs, and the probes
-# and status pages (`/v1/status`, `/livez` and `/readyz` arrive in Phase 8).
+# and status pages.
 NO_STORE = re.compile(r"^/(v1/ingest-runs(/.*)?|ingest/.*|jurisdictions/[^/]+/ingest|v1/status|status|health"
                       r"|livez|readyz)$")
 
@@ -186,7 +186,8 @@ HEADERS = {
                             "30 seconds of its snapshot.",
              "schema": {"type": "string"}, "example": 'W/"9f2c5d0e..."'},
     "Cache-Control": {"description": "`public, max-age=300` when reads are open, `private, max-age=300` when the "
-                                     "deployment requires a read token; `no-store` on ingest operations",
+                                     "deployment requires a read token; `no-store` on ingest operations, the "
+                                     "status and the probes",
                       "schema": {"type": "string"}},
 }
 NOT_MODIFIED = {

@@ -73,6 +73,14 @@ def _operations(prefix: str = "") -> list[tuple[str, str, dict]]:
             for m, op in item.items()]
 
 
+# Unversioned paths, but v1 operations (plan.md 2.2), held to the same rules.
+PROBES = {"/livez", "/readyz"}
+
+
+def _v1_operations() -> list[tuple[str, str, dict]]:
+    return [(m, p, op) for m, p, op in _operations() if p.startswith("/v1/") or p in PROBES]
+
+
 def _resolve(schema: dict) -> dict:
     ref = schema.get("$ref", "")
     return api.app.openapi()["components"]["schemas"][ref.rsplit("/", 1)[1]] if ref else schema
@@ -95,7 +103,7 @@ def test_no_authorization_header_param():
               if prm["in"] == "header" and prm["name"].lower() == "authorization"}
     assert not params
     read, ingest = [{"ReadToken": []}, {"IngestToken": []}], [{"IngestToken": []}]
-    open_ = {"GET /health", "GET /registers", "GET /status"}
+    open_ = {"GET /health", "GET /registers", "GET /status", "GET /livez", "GET /readyz", "GET /v1/status"}
     for m, p, op in _operations():
         want = [] if f"{m} {p}" in open_ else ingest if "ingest" in p else read
         assert op.get("security") == want, f"{m} {p}"
@@ -103,21 +111,21 @@ def test_no_authorization_header_param():
 
 def test_operation_ids_are_explicit():
     """v1 ids are chosen, not generated; legacy ids stay as they were for existing clients."""
-    v1 = [op["operationId"] for _, _, op in _operations("/v1/")]
+    v1 = [op["operationId"] for _, _, op in _v1_operations()]
     every = [op["operationId"] for _, _, op in _operations()]
     assert v1 and not [i for i in v1 if "__" in i or "_" in i], v1
     assert len(every) == len(set(every))
 
 
 def test_every_v1_operation_has_one_known_tag():
-    bad = {f"{m} {p}": op.get("tags") for m, p, op in _operations("/v1/")
+    bad = {f"{m} {p}": op.get("tags") for m, p, op in _v1_operations()
            if len(op.get("tags", [])) != 1 or op["tags"][0] not in V1_TAGS}
     assert not bad
 
 
 def test_no_untyped_2xx_responses_in_v1():
     untyped = []
-    for m, p, op in _operations("/v1/"):
+    for m, p, op in _v1_operations():
         for status, _, media in _ok_responses(op):
             schema = _resolve(media.get("schema", {}))
             if not schema.get("properties") and schema.get("type") in (None, "object"):
@@ -127,7 +135,7 @@ def test_no_untyped_2xx_responses_in_v1():
 
 def test_every_v1_2xx_response_has_an_example():
     missing = []
-    for m, p, op in _operations("/v1/"):
+    for m, p, op in _v1_operations():
         for status, _, media in _ok_responses(op):
             if not (media.get("example") or media.get("examples") or _resolve(media.get("schema", {})).get("examples")):
                 missing.append(f"{m} {p} {status}")
@@ -160,6 +168,11 @@ INGEST_ERRORS = {"createIngestRun": {"403", "404", "409", "415", "422"},
 # rows, or only freshness, which degrades to null.
 QUERY_TIMEOUTS = {"listJurisdictionChanges", "listRows", "getRow", "listRegisterChanges", "listSnapshots",
                   "search", "getDomainStatus", *INGEST_ERRORS}
+# The probes are never rate limited and take no parameters (a NUL byte is still
+# a 400); only /readyz needs the database. Their whole list, then.
+PROBE_ERRORS = {"livez": {"400", "500"}, "readyz": {"400", "500", "503"}}
+# Not a problem: with `strict=true`, the status document itself, as a 503.
+STATUS_DOCUMENT = ("getStatus", "503")
 
 
 def test_error_responses_documented():
@@ -167,16 +180,23 @@ def test_error_responses_documented():
     the catalog's components.responses, and nothing FastAPI added on its own."""
     spec = api.app.openapi()
     wrong = {}
-    for m, p, op in _operations("/v1/"):
+    for m, p, op in _v1_operations():
+        op_id = op["operationId"]
         path_ids = {q["name"] for q in op.get("parameters", []) if q["in"] == "path"} & RESOURCE_IDS
         # 400 everywhere: an operation without parameters still refuses undeclared ones.
-        want = ({"400", "401", "429", "500", "503"} | ({"404"} if path_ids else set())
-                | INGEST_ERRORS.get(op["operationId"], set())
-                | ({"504"} if op["operationId"] in QUERY_TIMEOUTS else set()))
+        # 401 where a token can be asked for; open operations (`security: []`) never ask.
+        want = PROBE_ERRORS.get(op_id) or (
+            {"400", "429", "500", "503"} | ({"401"} if op["security"] else set())
+            | ({"404"} if path_ids else set()) | INGEST_ERRORS.get(op_id, set())
+            | ({"504"} if op_id in QUERY_TIMEOUTS else set()))
         errors = {s for s in op["responses"] if s[0] in "45"}
         if errors != want:
             wrong[f"{m} {p}"] = sorted(errors ^ want)
         for s in errors:
+            if (op_id, s) == STATUS_DOCUMENT:
+                media = op["responses"][s]["content"]["application/json"]
+                assert media["schema"] == {"$ref": "#/components/schemas/Status"}
+                continue
             ref = op["responses"][s].get("$ref", "")
             assert ref.rsplit("/", 1)[-1] in spec["components"]["responses"], f"{m} {p} {s}: {ref!r}"
             assert ref.startswith("#/components/responses/")
@@ -196,7 +216,7 @@ def test_error_response_examples_are_problems():
 def test_no_v1_operation_is_pinned_in_the_baseline():
     """T3.2.e: generated traffic finds nothing wrong with v1, in either mode."""
     pinned = {op for mode in json.loads(BASELINE.read_text()).values() for op in mode}
-    assert not [op for op in pinned if " /v1/" in op]
+    assert not [op for op in pinned if " /v1/" in op or op.split(" ", 1)[1] in PROBES]
 
 
 # --- the app, wired for generated traffic ------------------------------------------
@@ -356,11 +376,22 @@ def test_operation_conforms_to_the_spec(case):
         _fail(op, "not_a_server_error", case, pinned, f"unhandled {type(exc).__name__}: {exc}")
         return
     for name, check in CHECKS.items():
+        if name == "not_a_server_error" and _stale_by_request(case, response):
+            continue
         try:
             case.validate_response(response, checks=[check])
         except (Failure, FailureGroup) as exc:
             titles = [f.title for f in getattr(exc, "exceptions", [exc])]
             _fail(op, name, case, pinned, "; ".join(titles) + f" (HTTP {response.status_code})\n{exc}")
+
+
+def _stale_by_request(case, response) -> bool:
+    """`/v1/status?strict=true` answering 503 because something is stale is the
+    contract (T8.1), not a server error. The other checks still hold it to the
+    spec: a documented 503 whose body is the status document. In fake mode no
+    register has a snapshot, so every one is stale."""
+    return (case.operation.label == "GET /v1/status" and response.status_code == 503
+            and response.json().get("stale") is True)
 
 
 def _fail(op: str, check: str, case, pinned: set[str], detail: str) -> None:

@@ -20,7 +20,8 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-from registerwatch.db.engine import tx
+# Only fetches reserve slots, and only ingest fetches: the ingest pool (plan.md P8.2).
+from registerwatch.db.engine import ingest_tx as tx
 
 
 @dataclass(frozen=True)

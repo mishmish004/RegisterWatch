@@ -36,3 +36,23 @@ def _fresh_process_state():
     caching.VERSIONS.clear()
     ratelimit.BUCKETS.clear()
     yield
+
+
+@pytest.fixture
+def configure(monkeypatch):
+    """`configure(DB_POOL_MAX=2, ...)`: the real settings, read from these
+    environment variables, and the app's real pools opened from them on first
+    use. Both are forgotten afterwards, so the next test starts clean."""
+    from registerwatch import config
+    from registerwatch.db import engine
+
+    def apply(**env):
+        for name, value in env.items():
+            monkeypatch.setenv(name, str(value))
+        engine.close_pools()
+        config.settings.cache_clear()
+        return config.settings()
+
+    yield apply
+    engine.close_pools()
+    config.settings.cache_clear()

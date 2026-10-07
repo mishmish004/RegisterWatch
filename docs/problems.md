@@ -113,8 +113,9 @@ before it gets here.
 
 ## database-unavailable
 
-**503.** The database cannot be reached right now, or every connection is busy. Retry after
-`Retry-After` seconds.
+**503.** The database cannot be reached right now, or every connection is busy: the request
+waited `DB_POOL_TIMEOUT_S` (3 s) for one. Retry after `Retry-After` seconds. `/readyz` answers
+with it when the database does not answer `SELECT 1` within 2 s.
 
 ## query-timeout
 

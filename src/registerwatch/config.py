@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     # (a 504), so one slow query cannot hold a pooled connection. 0 = no limit.
     read_statement_timeout_ms: int = Field(default=5000, ge=0)
 
+    # Connections for reads (every API request) come from one pool of at most
+    # DB_POOL_MAX; a request that waits DB_POOL_TIMEOUT_S for one is a 503
+    # `database-unavailable`. Ingest runs have a pool of their own (2), so a
+    # batch never takes a connection a read needs. Sync handlers run in
+    # 2 x DB_POOL_MAX threads, so a burst queues for a thread rather than
+    # timing out on the pool.
+    db_pool_max: int = Field(default=10, ge=1)
+    db_pool_timeout_s: float = Field(default=3.0, gt=0)
+
     # Requests per minute per client: per bearer token when one of ours is sent,
     # else per client address. Kept in each process, so each replica (and each
     # worker) counts on its own. 0 turns a class off.
