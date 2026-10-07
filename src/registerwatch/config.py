@@ -103,6 +103,25 @@ class Settings(BaseSettings):
     rate_limit_search_per_min: int = Field(default=60, ge=0)   # /v1/search and /v1/domains
     rate_limit_ingest_per_min: int = Field(default=10, ge=0)   # starting ingest runs
 
+    # `registerwatch serve` (plan.md P9.2, P9.3). Worker processes, each with
+    # its own pools, buckets and caches. On SIGTERM the server stops accepting,
+    # a running ingest finishes the register in hand and records the rest as
+    # `not_started`, and in-flight requests finish: it waits SHUTDOWN_GRACE_S + 5
+    # for them, and the process is gone 4 s after that whatever is still running.
+    # Give the platform's stop timeout more than SHUTDOWN_GRACE_S + 10.
+    web_concurrency: int = Field(default=1, ge=1)
+    shutdown_grace_s: float = Field(default=60.0, ge=0)
+    # Proxies whose X-Forwarded-For / X-Forwarded-Proto uvicorn believes: the
+    # client address (and so the rate-limit bucket) comes from the header only
+    # when the connection is from one of these. Comma-separated addresses or
+    # networks, or `*` when nothing but the platform's proxy can reach the app.
+    forwarded_allow_ips: str = "127.0.0.1"
+
+    # Test only (plan.md T9.3.b): every register of a v1 ingest run sleeps
+    # 20 s and records a skip instead of fetching, so a stop can land mid-run
+    # in a real container.
+    fake_slow_ingest: bool = Field(default=False, validation_alias="REGISTERWATCH_FAKE_SLOW_INGEST")
+
     log_level: str = "INFO"
 
     @field_validator("ingest_token", "read_token")

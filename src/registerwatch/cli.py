@@ -20,6 +20,7 @@ import csv
 import json
 import logging
 import pathlib
+import signal
 import sys
 from datetime import date, datetime, time, timezone
 from importlib.resources import files
@@ -36,6 +37,17 @@ MIGRATIONS = files("registerwatch") / "migrations"
 SCHEMA_MIGRATION = "20261007000009_register_schemas.sql"
 OPENAPI_SPEC = pathlib.Path("openapi") / "v1.yaml"  # relative to a source checkout
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[2]  # only meaningful in a source checkout
+
+# `serve` (plan.md P9.2). Keep-alive outlives the 60 s idle timeout most proxies
+# use, so the proxy closes an idle connection first and never sends a request
+# down one the server is closing (an intermittent 502, F16).
+KEEP_ALIVE_S = 75
+LIMIT_CONCURRENCY = 200
+GRACEFUL_EXTRA_S = 5  # uvicorn waits SHUTDOWN_GRACE_S + this after SIGTERM
+OPEN_FILES = 65_536   # the soft limit serve raises itself to, if the hard one allows
+MIN_OPEN_FILES = 4_096
+
+log = logging.getLogger(__name__)
 
 
 # --- output ------------------------------------------------------------------
@@ -261,9 +273,52 @@ def cmd_openapi(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
-    uvicorn.run("registerwatch.api:app", host=args.host or settings().host, port=args.port or settings().port,
-                log_level=settings().log_level.lower(), reload=args.reload)
+    s = settings()
+    raise_open_file_limit()
+    # Uvicorn re-raises the signal it stopped on once it has stopped, for the
+    # default action to end the process: for SIGTERM an exit by signal (143),
+    # except as PID 1, where the kernel ignores it. A stop the platform asked
+    # for is a clean exit, so this handler makes it 0. It is also what a SIGTERM
+    # does before uvicorn takes the signal over: stop here.
+    previous = signal.signal(signal.SIGTERM, _exit_on_sigterm)
+    try:
+        uvicorn.run(
+            "registerwatch.api:app",
+            host=args.host or s.host,
+            port=args.port or s.port,
+            log_level=s.log_level.lower(),
+            reload=args.reload,
+            workers=args.workers or s.web_concurrency,
+            timeout_keep_alive=args.timeout_keep_alive,
+            timeout_graceful_shutdown=(args.timeout_graceful_shutdown if args.timeout_graceful_shutdown is not None
+                                       else s.shutdown_grace_s + GRACEFUL_EXTRA_S),
+            limit_concurrency=args.limit_concurrency,
+            proxy_headers=True,
+            forwarded_allow_ips=args.forwarded_allow_ips or s.forwarded_allow_ips,
+        )
+    finally:
+        signal.signal(signal.SIGTERM, previous)
     return 0
+
+
+def _exit_on_sigterm(signum: int, frame: Any) -> None:
+    sys.exit(0)
+
+
+def raise_open_file_limit(want: int = OPEN_FILES) -> int:
+    """Raise the soft open-file limit to `want`, or to the hard limit if that is
+    lower, and return it. Containers often start at a soft 1024; a process may
+    raise its own up to the hard limit, so the image needs no shell wrapper."""
+    import resource
+
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    target = want if hard == resource.RLIM_INFINITY else min(want, hard)
+    if soft != resource.RLIM_INFINITY and soft < target:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        soft = target
+    if soft != resource.RLIM_INFINITY and soft < MIN_OPEN_FILES:
+        log.warning("open-file limit is %d (hard %d): below %d, raise it on the platform", soft, hard, MIN_OPEN_FILES)
+    return soft
 
 
 # --- per-jurisdiction commands ------------------------------------------------------
@@ -386,9 +441,19 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(fn=cmd_openapi)
 
     s = sub.add_parser("serve", help="run the HTTP API")
-    s.add_argument("--host")
-    s.add_argument("--port", type=int)
+    s.add_argument("--host", help="default $HOST, else 0.0.0.0")
+    s.add_argument("--port", type=int, help="default $PORT, else 8000")
     s.add_argument("--reload", action="store_true")
+    s.add_argument("--workers", type=int, help="processes (default $WEB_CONCURRENCY, else 1)")
+    s.add_argument("--timeout-keep-alive", type=int, default=KEEP_ALIVE_S, metavar="S",
+                   help="close an idle connection after S seconds (default %(default)s)")
+    s.add_argument("--timeout-graceful-shutdown", type=float, metavar="S",
+                   help=f"after SIGTERM, wait S seconds for requests and the ingest run in hand "
+                        f"(default $SHUTDOWN_GRACE_S, 60, + {GRACEFUL_EXTRA_S})")
+    s.add_argument("--limit-concurrency", type=int, default=LIMIT_CONCURRENCY, metavar="N",
+                   help="answer 503 at once beyond N open connections or requests (default %(default)s)")
+    s.add_argument("--forwarded-allow-ips", metavar="IPS",
+                   help="proxies trusted for X-Forwarded-* (default $FORWARDED_ALLOW_IPS, else 127.0.0.1)")
     s.set_defaults(fn=cmd_serve)
 
     for code, regs in jurisdictions.by_code().items():

@@ -3,8 +3,9 @@
 The client is the bearer token when it is one this deployment issued (by its
 hash: the token itself is never kept), else the client address. Uvicorn sets
 that address from `X-Forwarded-For` only for proxies in `FORWARDED_ALLOW_IPS`
-(P9.2, P10.2); until then, behind a platform proxy every anonymous client is the
-proxy. An unknown token counts as its address, so inventing tokens buys nothing.
+(`registerwatch serve`, P9.2; 127.0.0.1 by default): until it names the platform's
+proxy, every anonymous client behind it is the proxy. An unknown token counts as
+its address, so inventing tokens buys nothing.
 
   read    every other request             RATE_LIMIT_READ_PER_MIN    (600)
   search  /v1/search, /v1/domains         RATE_LIMIT_SEARCH_PER_MIN  (60)

@@ -45,7 +45,7 @@ def _done(slug: str) -> IngestResult:
 @pytest.fixture
 def cfg(monkeypatch):
     cfg = SimpleNamespace(ingest_token=INGEST_TOKEN, read_token=READ_TOKEN, stale_after_h=26.0,
-                          log_level="WARNING", database_url=DSN)
+                          log_level="WARNING", database_url=DSN, fake_slow_ingest=False)
     for module in (deps, api, runs):
         monkeypatch.setattr(module, "settings", lambda: cfg)
     monkeypatch.setattr(runs, "make_store", lambda: object())
@@ -421,3 +421,97 @@ def test_a_second_sigterm_inside_the_first_does_not_deadlock(monkeypatch):
     finally:
         signal.signal(signal.SIGTERM, before)
     assert runs.STOP.is_set() and handed_on == [signal.SIGTERM, signal.SIGTERM]
+
+
+# --- P9.3 the fake slow engine and the shutdown bound ---------------------------------
+
+
+def test_the_fake_slow_engine_sleeps_and_records_a_skip(cfg, monkeypatch):
+    """REGISTERWATCH_FAKE_SLOW_INGEST (T9.3.b) stands in for the engine: 20 s a
+    register, no fetch, a skip recorded, so a run nobody stops still succeeds."""
+    memory = _MemoryRepo()
+    for name in ("start", "finish"):
+        monkeypatch.setattr(runs.repo, name, getattr(memory, name))
+    recorded = []
+    monkeypatch.setattr(runs.repo, "record", lambda conn, run_id, position, result: recorded.append(result))
+    monkeypatch.setattr(runs, "tx", lambda: contextlib.nullcontext(None))
+    monkeypatch.setattr(runs.engine, "ingest", lambda *a, **kw: pytest.fail("the real engine ran"))
+    slept = []
+    monkeypatch.setattr(runs.time, "sleep", slept.append)
+    targets = [REGISTRY[s] for s in ("gb_ukgc", "pl_mf")]
+
+    cfg.fake_slow_ingest = True
+    assert runs.execute(_Lease(), uuid.uuid4(), targets) == "succeeded" == memory.status
+    assert slept == [runs.FAKE_SLOW_INGEST_S] * 2 == [20.0, 20.0]
+    assert [(r.slug, r.skipped, r.reason, r.snapshot_id) for r in recorded] == [
+        ("gb_ukgc", True, "FAKE_SLOW_INGEST", None), ("pl_mf", True, "FAKE_SLOW_INGEST", None)]
+
+    cfg.fake_slow_ingest = False  # the default: the real engine
+    monkeypatch.setattr(runs.engine, "ingest", lambda register, store, **kw: _done(register.slug))
+    recorded.clear()
+    assert runs.execute(_Lease(), uuid.uuid4(), targets) == "succeeded"
+    assert [r.reason for r in recorded] == [None, None] and len(slept) == 2
+
+
+def test_the_fake_slow_engine_is_off_by_default(monkeypatch):
+    from registerwatch.config import Settings
+
+    monkeypatch.delenv("REGISTERWATCH_FAKE_SLOW_INGEST", raising=False)
+    assert Settings(_env_file=None).fake_slow_ingest is False
+    monkeypatch.setenv("REGISTERWATCH_FAKE_SLOW_INGEST", "1")
+    assert Settings(_env_file=None).fake_slow_ingest is True
+
+
+def test_leave_after_ends_a_process_that_outstays_it(monkeypatch, caplog):
+    """The bound once uvicorn stops waiting: a thread that will not finish (a
+    register past the grace) is named, and the process exits 1 without it."""
+    exited = threading.Event()
+    codes = []
+    monkeypatch.setattr(runs.os, "_exit", lambda code: (codes.append(code), exited.set()))
+    monkeypatch.setattr(runs.logging, "shutdown", lambda: None)
+    stuck = threading.Event()
+    worker = threading.Thread(target=stuck.wait, name="AnyIO worker thread")
+    worker.start()
+    try:
+        runs.leave_after(0.05)
+        assert exited.wait(5), "leave_after never fired"
+    finally:
+        stuck.set()
+        worker.join()
+    assert codes == [1]
+    assert "exiting without it" in caplog.text and "AnyIO worker thread" in caplog.text
+
+
+def test_leave_after_is_a_daemon_that_a_clean_exit_takes_along(monkeypatch):
+    monkeypatch.setattr(runs.os, "_exit", lambda code: pytest.fail("fired"))
+    timer = runs.leave_after(60)
+    try:
+        assert timer.daemon and timer.is_alive()
+    finally:
+        timer.cancel()
+
+
+@pytest.mark.parametrize("serving", [True, False])
+def test_the_lifespan_bounds_the_shutdown_only_in_the_server(cfg, monkeypatch, serving):
+    """Only the server's own process (whose main thread took SIGTERM) gets the
+    bound: a test client's lifespan must never end the test run."""
+    armed = []
+    monkeypatch.setattr(runs, "stop_on_sigterm", lambda: serving)
+    monkeypatch.setattr(runs, "sweep_on_startup", lambda: None)
+    monkeypatch.setattr(runs, "leave_after", armed.append)
+    with TestClient(api.app):
+        assert armed == []
+    assert armed == ([api.LEAVE_AFTER_S] if serving else [])
+
+
+def test_sigterm_handler_says_whether_it_was_installed():
+    before = signal.getsignal(signal.SIGTERM)
+    try:
+        assert runs.stop_on_sigterm() is True  # pytest's main thread
+        result = []
+        t = threading.Thread(target=lambda: result.append(runs.stop_on_sigterm()))
+        t.start()
+        t.join()
+        assert result == [False]
+    finally:
+        signal.signal(signal.SIGTERM, before)

@@ -50,6 +50,8 @@ log = logging.getLogger(__name__)
 # lock v1 runs take (with a cross-process one), so legacy and v1 never overlap here.
 _running = runs.LOCAL
 _last: dict[str, Any] = {}
+# After uvicorn's graceful shutdown: closing the pools, then the process is gone.
+LEAVE_AFTER_S = 4.0
 
 
 @asynccontextmanager
@@ -61,9 +63,13 @@ async def lifespan(_: FastAPI):
     )
     # Sync handlers run in anyio's worker threads; size them to the read pool (P8.2).
     anyio.to_thread.current_default_thread_limiter().total_tokens = thread_limit()
-    runs.stop_on_sigterm()
+    serving = runs.stop_on_sigterm()
     runs.sweep_on_startup()
     yield
+    # Uvicorn has finished waiting for requests and the ingest run (P9.3): what
+    # still runs now gets LEAVE_AFTER_S, then the process exits without it.
+    if serving:
+        runs.leave_after(LEAVE_AFTER_S)
     close_pools()
 
 

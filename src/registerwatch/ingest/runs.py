@@ -10,6 +10,10 @@ Single flight is two locks, both taken without waiting:
 
 The worker checks STOP and its lock connection between registers: on SIGTERM it
 finishes the register in hand and records the rest as `not_started` (`partial`).
+Uvicorn waits for it up to --timeout-graceful-shutdown (SHUTDOWN_GRACE_S + 5);
+a register still running past that cannot be cut short, so the process leaves
+without it (`leave_after`): the run stays `running`, its lock goes with the
+connection, and the next holder's sweep marks it `failed` / `worker lost`.
 """
 
 from __future__ import annotations
@@ -19,7 +23,9 @@ import json
 import logging
 import os
 import signal
+import sys
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -40,6 +46,7 @@ log = logging.getLogger(__name__)
 LOCK_KEY = 0x5265_6757_4C6F_636B  # "RegWLock"
 LOCAL = threading.Lock()
 STOP = threading.Event()
+FAKE_SLOW_INGEST_S = 20.0
 
 
 def connect() -> psycopg.Connection:
@@ -125,7 +132,7 @@ def execute(lease: Lease, run_id: uuid.UUID, targets: list[Register], *, force: 
             ingest: Callable[..., engine.IngestResult] | None = None) -> str:
     """Run the batch, recording each register as it finishes. Releases the lease.
     Returns the final status."""
-    ingest = ingest or engine.ingest
+    ingest = ingest or (fake_slow_ingest if settings().fake_slow_ingest else engine.ingest)
     not_started: list[str] = []
     status, error = "failed", None
     try:
@@ -163,9 +170,20 @@ def execute(lease: Lease, run_id: uuid.UUID, targets: list[Register], *, force: 
     return status
 
 
-def stop_on_sigterm() -> None:
+def fake_slow_ingest(register: Register, store: Any, **_: Any) -> engine.IngestResult:
+    """REGISTERWATCH_FAKE_SLOW_INGEST (test only, plan.md T9.3.b): a register that
+    takes FAKE_SLOW_INGEST_S and fetches nothing. Recorded as a skip, so a run
+    nobody stops ends `succeeded`, and `partial` can only mean it was stopped."""
+    log.warning("%s: REGISTERWATCH_FAKE_SLOW_INGEST is set: sleeping %g s instead of ingesting",
+                register.slug, FAKE_SLOW_INGEST_S)
+    time.sleep(FAKE_SLOW_INGEST_S)
+    return engine.IngestResult(register.slug, None, False, "FAKE_SLOW_INGEST", 0, 0, skipped=True)
+
+
+def stop_on_sigterm() -> bool:
     """Set STOP on SIGTERM, then hand the signal to whoever handled it before
-    (uvicorn's graceful shutdown). Only possible from the main thread.
+    (uvicorn's graceful shutdown). Only possible from the main thread: True when
+    installed, which is how the app knows it is the server's process.
 
     Only the first SIGTERM sets STOP. A second can arrive while the first's
     handler is inside `STOP.set()`, holding the Event's lock (a process-group
@@ -189,4 +207,32 @@ def stop_on_sigterm() -> None:
     try:
         signal.signal(signal.SIGTERM, handler)
     except ValueError:  # not the main thread (a test client's portal)
-        pass
+        return False
+    return True
+
+
+def leave_after(seconds: float) -> threading.Timer:
+    """End the process `seconds` from now if it is still here.
+
+    For the server's shutdown, once uvicorn has stopped waiting. What still runs
+    then cannot be stopped: a register past the grace, or a request thread
+    waiting on a database that stopped answering. The event loop waits for such
+    a thread before it closes, and the interpreter for any thread before it
+    exits, so without this the process would outlive its bound until the
+    platform kills it. The timer is a daemon: a process that exits in time
+    takes it along."""
+
+    def leave() -> None:
+        busy = sorted(t.name for t in threading.enumerate()
+                      if t is not threading.current_thread() and t is not threading.main_thread() and not t.daemon)
+        log.error("still running %g s after the server stopped waiting (%s); exiting without it",
+                  seconds, ", ".join(busy) or "the event loop")
+        logging.shutdown()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(1)
+
+    timer = threading.Timer(seconds, leave)
+    timer.daemon = True
+    timer.start()
+    return timer

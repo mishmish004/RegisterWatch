@@ -26,8 +26,8 @@ uv tool install dist/registerwatch-0.2.0-py3-none-any.whl   # `registerwatch` on
 pipx install dist/registerwatch-0.2.0-py3-none-any.whl      # same, with pipx
 pip install dist/registerwatch-0.2.0-py3-none-any.whl       # into an existing environment
 
-# as a service
-docker build -t registerwatch . && docker run -p 8000:8000 --env-file .env registerwatch
+# as a service (see Container below)
+docker build -t registerwatch . && docker run -p 8000:8000 --read-only --tmpfs /tmp --env-file .env registerwatch
 ```
 
 Then once per database:
@@ -212,6 +212,36 @@ than timing out on the pool.
 | `GET /health` | liveness; touches nothing |
 | `GET /status` | per register: last attempt, last good snapshot, last verdict. **503** if any register has no good snapshot within `STALE_AFTER_H` (26h), or the database is unreachable. Replaced by `/v1/status?strict=true` for uptime monitors and `/readyz` for probes |
 | `GET /registers` | every register with its schema, tables and columns |
+
+## Container
+
+The `Dockerfile` builds the virtualenv with uv from `uv.lock` in one stage and
+copies only that into `python:3.12-slim-bookworm` (about 240 MB unpacked). It runs
+as `registerwatch` (uid 10001) and needs no writable disk but `/tmp`, so
+`--read-only --tmpfs /tmp` works; with `BLOB_BACKEND=local`, point `SNAPSHOT_ROOT`
+under `/tmp`. The server is PID 1 and takes SIGTERM itself. Its `HEALTHCHECK` asks
+`/livez` every 10 s (every second while it starts); orchestrators should probe
+`/livez` for liveness and `/readyz` for readiness.
+
+`registerwatch serve` takes these, flag or environment variable:
+
+| | |
+|---|---|
+| `--workers`, `WEB_CONCURRENCY` (1) | processes. Each has its own pools (`DB_POOL_MAX + 3` connections) and rate-limit buckets |
+| `--timeout-keep-alive` (75 s) | longer than the 60 s idle timeout most proxies use, so the proxy closes an idle connection first |
+| `--limit-concurrency` (200) | beyond this many open connections or requests, a new request gets uvicorn's own 503 (`text/plain`, not a problem document) at once. Idle keep-alive connections count |
+| `--forwarded-allow-ips`, `FORWARDED_ALLOW_IPS` (127.0.0.1) | proxies whose `X-Forwarded-For`/`-Proto` are believed. Set it to the platform proxy's addresses, or `*` if nothing else can reach the app; until then every anonymous client shares the proxy's rate-limit bucket |
+| `SHUTDOWN_GRACE_S` (60) | after SIGTERM, how long a running ingest may take to finish its register |
+| `--timeout-graceful-shutdown` (`SHUTDOWN_GRACE_S` + 5) | how long the server waits for that and for requests in flight |
+
+On SIGTERM the server stops accepting connections, requests in flight finish,
+and a running ingest finishes the register in hand and records the rest as
+`not_started` (`partial`). The process exits 0, or 1 when something was still
+running 4 s after the server stopped waiting: then the run stays `running`, and
+the next process to take the run lock marks it `failed` (`worker lost`). Give the
+platform's stop timeout (Docker's is 10 s, Kubernetes' 30 s) more than
+`SHUTDOWN_GRACE_S + 10`, or lower `SHUTDOWN_GRACE_S` to fit it.
+`scripts/verify/os.sh` checks all of this against a built image.
 
 ## Daily schedule (Supabase)
 

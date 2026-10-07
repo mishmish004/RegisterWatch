@@ -806,6 +806,25 @@ on `/livez` using Python (`python -c "import urllib.request,sys;urllib.request.u
 - T9.1.d **[box]** Image size ≤ 250 MB (`docker image inspect -f '{{.Size}}'`); record the before/after numbers.
 - T9.1.e **[box]** `docker run --rm --entrypoint python registerwatch:plan -c "import registerwatch, importlib.resources as r; print((r.files('registerwatch')/'registers/certs/disig_r2i2.pem').is_file())"` → `True` (package data survived the multi-stage copy).
 
+As built: the build stage installs uv from PyPI, pinned (`uv==0.11.32`), rather than copying it
+from `ghcr.io/astral-sh/uv`: the build already needs PyPI for the wheels, so this adds no second
+registry. `uv sync --no-editable` installs the package itself into the venv with its data, so the
+runtime stage copies `/app/.venv` and nothing else; the venv links to `/usr/local/bin/python3.12`,
+which both stages have because they share `PYTHON_IMAGE`. The user is a named system user
+(`registerwatch`, 10001:10001, no home, no login shell) rather than a bare uid, so anything that
+looks the user up gets an answer. The `HEALTHCHECK` reads `PORT` as the server does and asks every
+10 s, every second during a 30 s start period (`--start-interval`, Docker 25 and later), so a fresh
+container is healthy in about 3 s rather than at the first 30 s interval.
+Corrected (T9.1.d): `.Size` is the unpacked layers on Docker's classic image store, which is what
+250 MB was written against. On the containerd image store (this host's Docker 29.8 uses it) `.Size`
+adds the compressed layers as well, so the same image counts about 1.5 times. The bound is on the
+unpacked filesystem, measured as `docker export | wc -c`, and both numbers are recorded; the
+classic store's `.Size` was also measured to confirm the two agree. The Phase 8 image could not be
+pulled here (its base is on ghcr.io, which this environment cannot reach), so "before" is the
+Phase 8 Dockerfile built on that base's contents: `python:3.12-slim-bookworm` with uv in
+`/usr/local/bin`. Most of what the new image drops is uv's download cache (106 MB) and uv itself
+(64 MB), both of which the old one kept.
+
 **P9.2 Process model and limits.**
 `registerwatch serve` gains `--workers` (default 1; `WEB_CONCURRENCY`), `--timeout-keep-alive`
 (default 75 s), `--timeout-graceful-shutdown` (default `SHUTDOWN_GRACE_S + 5`),
@@ -815,13 +834,60 @@ on `/livez` using Python (`python -c "import urllib.request,sys;urllib.request.u
 - T9.2.b **[box]** `docker exec rw-api sh -c 'cat /proc/1/limits'` (or Python equivalent if no shell) shows `Max open files` ≥ 4096; if the platform default is lower, the image sets it via the entrypoint and the test checks the raised value.
 - T9.2.c **[box]** With `--limit-concurrency 5`, 20 concurrent slow requests: excess requests get 503 quickly (< 100 ms), none hang.
 
+As built: every flag defaults from settings: `WEB_CONCURRENCY`, `SHUTDOWN_GRACE_S` and
+`FORWARDED_ALLOW_IPS` (uvicorn would read the first and last itself, but nothing outside
+`config.py` reads the environment). `--proxy-headers` is uvicorn's default and is passed anyway.
+`serve` raises its own soft open-file limit to 65,536, or to the hard limit if that is lower, which
+any process may do, so a platform that starts containers at a soft 1,024 still gets ≥ 4,096 with no
+shell entrypoint; below 4,096 it logs a warning. Docker here starts containers at 20,000/20,000, so
+T9.2.b also starts one at `--ulimit nofile=1024:20000` and reads the raised value. Uvicorn's
+concurrency limit counts open connections as well as requests, the arriving one included: with 5,
+and 20 arriving together, 4 got in. Its 503 is uvicorn's own `text/plain` "Service Unavailable"
+with `Connection: close`, sent before the app sees the request, so it is not a problem document
+(as a proxy's 502 is not). Idle keep-alive connections count too: 200 suits a platform proxy's few
+pooled connections, but many direct clients each holding one for 75 s would need more. T9.2.c makes
+the admitted reads slow by pausing Postgres for 2 s (`docker pause`), with `DB_POOL_TIMEOUT_S=30`
+so that they wait for it rather than fail on the pool.
+
 **P9.3 Signals and shutdown.**
 - T9.3.a **[box]** `time docker stop -t 30 rw-api` with no work in flight completes in < 3 s, exit code 0 (`docker inspect -f '{{.State.ExitCode}}'`).
 - T9.3.b **[box][pg]** Start an ingest run with a register patched to sleep 20 s per register (test-only `REGISTERWATCH_FAKE_SLOW_INGEST=1`), `docker stop -t 90`: the container exits within `SHUTDOWN_GRACE_S + 10` s and `GET /v1/ingest-runs/{id}` (after restart) shows `partial` with `not_started` populated, and `pg_locks` shows no leftover advisory lock.
 - T9.3.c **[box]** In-flight read requests during `docker stop` complete with 200 (send 10 slow reads, stop, all 10 return).
 
+As built: `SHUTDOWN_GRACE_S` (60) is the one setting; `--timeout-graceful-shutdown` defaults to it
+plus 5. On SIGTERM uvicorn closes its listening socket (a new connection is refused) and its idle
+connections, the run finishes the register in hand and records `partial`, and requests in flight
+finish. What still runs when uvicorn stops waiting cannot be stopped: a register past the grace, or
+a handler's thread waiting on a database that stopped answering. The event loop waits for such a
+thread before it closes, and the interpreter before it exits, so the process would outlive its bound
+until the platform killed it. The lifespan's shutdown therefore arms a 4 s daemon timer
+(`runs.leave_after`) that logs the threads still busy and exits 1: with the defaults the process is
+gone by SHUTDOWN_GRACE_S + 9. Only the server's own process arms it (where `stop_on_sigterm` could
+install its handler, on the main thread), never a test client. The run left behind stays `running`,
+its lock goes with its connection, and the next holder's sweep fails it `worker lost`; os.sh checks
+this too, as a second T9.3.b case with SHUTDOWN_GRACE_S=5. After a graceful shutdown uvicorn
+re-raises the SIGTERM it stopped on, for the default action to end the process: as PID 1 the kernel
+ignores that, but anywhere else it is an exit by signal (143, for example under `docker run --init`).
+`serve` handles SIGTERM itself and exits 0. `REGISTERWATCH_FAKE_SLOW_INGEST` is a setting (test
+only) that replaces the engine in v1 runs: 20 s a register, recorded as a skip, so a run nobody stops
+succeeds and `partial` can only mean the stop. T9.3.c pauses Postgres for 3 s under 10 reads,
+sending SIGTERM 1 s in, with `DB_POOL_TIMEOUT_S=30` as in T9.2.c.
+
 **P9.4 Memory and file descriptors under load.**
 - T9.4.a **[box]** After `scripts/verify/load.py --rps 50 --duration 120` against `/v1/registers/gb_ukgc/tables/licences/rows?limit=1000`, RSS from `docker stats --no-stream` grows < 20 % between minute 1 and minute 2 (no leak), and `ls /proc/1/fd | wc -l` returns to within 10 of its idle value 10 s after the load ends.
+
+As built: os.sh seeds gb_ukgc with 5,000 synthetic current licences, so a page is 1,000 rows, and
+raises the read limit to 6,000 a minute for the run (50 rps from one address is 3,000), so every
+request still passes through the limiter. Memory is sampled by the clock at 60 s and 120 s, with
+VmRSS from `/proc/1/status` beside `docker stats`. `load.py` keeps at most `--concurrency` (64)
+requests in flight, each latency still counted from when it was due. The first version had no cap,
+and it buried the server: once the server fell behind, the client opened ever more connections,
+past `--limit-concurrency`, and httpx's pool spent all its time on thousands of waiting requests.
+Here one worker serves about 42 of these pages a second (about 25 ms of CPU each, on one core),
+so 50 rps saturates it: the 6,000 requests took 143 s, p50 9.4 s. That is recorded, not a T9.4
+criterion; Phase 10's latency budget (T10.6) will have to answer it, with smaller pages or more
+workers. The descriptors left 10 s after the load are the read pool, grown to DB_POOL_MAX, which
+keeps its connections until they have been idle for 10 minutes.
 
 Checklist
 - [ ] T9.1.a runs as uid 10001
