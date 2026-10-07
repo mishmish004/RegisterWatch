@@ -679,19 +679,19 @@ priced out. T7.3.c runs the app's real pool and `read_tx`, with the row query re
 `pg_sleep(10)`.
 
 Checklist
-- [ ] T7.1.a 304 on matching ETag
-- [ ] T7.1.b ETag changes only on a complete ingest
-- [ ] T7.1.c Cache-Control and Vary correct
-- [ ] T7.1.d no-store on ingest and status
-- [ ] T7.2.a 429 with Retry-After
-- [ ] T7.2.b RateLimit headers count down
-- [ ] T7.2.c buckets per token
-- [ ] T7.2.d probes never limited
-- [ ] T7.3.a trigram index used by q
-- [ ] T7.3.b reverse index used by domain match
-- [ ] T7.3.c statement timeout returns 504
-- [ ] T7.3.d search p95 under 300 ms recorded
-- [ ] GATE P7
+- [x] ~~T7.1.a 304 on matching ETag~~
+- [x] ~~T7.1.b ETag changes only on a complete ingest~~
+- [x] ~~T7.1.c Cache-Control and Vary correct~~
+- [x] ~~T7.1.d no-store on ingest and status~~
+- [x] ~~T7.2.a 429 with Retry-After~~
+- [x] ~~T7.2.b RateLimit headers count down~~
+- [x] ~~T7.2.c buckets per token~~
+- [x] ~~T7.2.d probes never limited~~
+- [x] ~~T7.3.a trigram index used by q~~
+- [x] ~~T7.3.b reverse index used by domain match~~
+- [x] ~~T7.3.c statement timeout returns 504~~
+- [x] ~~T7.3.d search p95 under 300 ms recorded~~
+- [x] ~~GATE P7~~
 
 ---
 
@@ -930,7 +930,7 @@ Strike a phase here only after its `GATE` line is struck.
 - [x] ~~Phase 4. Stable pagination and a complete change feed~~
 - [x] ~~Phase 5. Ingest runs as a persisted resource~~
 - [x] ~~Phase 6. Security schemes and authorization~~
-- [ ] Phase 7. Caching, rate limiting, query cost
+- [x] ~~Phase 7. Caching, rate limiting, query cost~~
 - [ ] Phase 8. Probes, status, and the database pool
 - [ ] Phase 9. OS and container level
 - [ ] Phase 10. Network level
