@@ -1102,16 +1102,34 @@ Supabase migration `2026101000000y_schedule_v1.sql`: `trigger_ingest(slug, force
 to `/v1/ingest-runs` with body `{"registers": [slug]}` (or `{}` for all) and
 `Idempotency-Key: registerwatch-cron-<YYYY-MM-DD>-<HH>-<slug>`, so a pg_net retry or
 a double-fire of the same slot creates one run. Signature unchanged.
+As built: `supabase/migrations/20261007000010_schedule_v1.sql` (the next version after `…000009`),
+Supabase-only like 0004, so not in the package. Only the function changes: 0004's job
+`registerwatch-daily` (06:00, 08:00 and 10:00 UTC) calls it as before, with the same Vault secrets,
+so a project needs nothing set up again. The hour is UTC, and a slot is a clock hour: calls at 06:59
+and 07:00 are two slots. `force` adds `"force": true` to the body and, corrected, `-force` to the
+key: the API refuses a key reused with a different body (T5.3.c), so without it a forced call after
+an unforced one in the same hour would be a 422.
+`tests/test_schedule.py` **[pg]** runs the function on plain Postgres, with `net.http_post` and Vault
+stood in by tables, and sends what it posted to the app as it was posted. `scripts/verify/cron.sh`
+runs T11.1.b and T11.1.c against a project (`RW_SUPABASE_DB_URL`, `RW_EDGE`, `RW_INGEST_TOKEN`;
+the host needs psql, curl and python3) or, without one, a local stand-in: Supabase's own Postgres
+image (pg_cron, pg_net and Vault, `postgres` not a superuser, as on a hosted project) with every
+`supabase/migrations` file applied as `postgres` in order, as `supabase db push` does, and the image
+under test using that database, as the deployment does. The stand-in cannot reach the regulators,
+so it shows everything but freshness.
 - T11.1.a `tests/test_schema.py::test_cron_migration_targets_v1` parses the SQL and asserts the URL contains `/v1/ingest-runs`, an `Idempotency-Key` header is sent, and `/ingest/` (legacy) no longer appears.
 - T11.1.b **[edge]** In the Supabase SQL editor: `select registerwatch_private.trigger_ingest('pl_mf');` then `select status_code from net._http_response order by created desc limit 1;` → `202`. Run it twice within the hour → the second returns `200` and `GET /v1/ingest-runs` shows one run.
+  Corrected: twice in the same UTC hour, since the key names the hour. `cron.sh T11.1.b` does it, after waiting for a run that is going to finish (else the first call is a 409).
 - T11.1.c **[edge]** After the next 06:00 UTC slot: `select status, return_message from cron.job_run_details order by start_time desc limit 1` → `succeeded`, and `/v1/status` shows every register fresh.
+  Corrected: and the slot's v1 run exists (`ingest_runs` with key `registerwatch-cron-<date>-<HH>-all`). `succeeded` in `cron.job_run_details` is only the SQL statement; pg_net's answer is not in it, and the legacy function's 409s were `succeeded` too (evidence: Control). `cron.sh T11.1.c` reads all three.
 - T11.1.d **[edge]** Phase 10's edge checks, run against a local stand-in for the platform's proxy, pass against the deployment: `RW_EDGE=https://<host> scripts/verify/net.sh T10.1.a T10.1.b T10.1.c T10.3.d`, and T10.6.c against staging, never production. (Added in Phase 10.)
+  Corrected: from a machine with direct internet, not from a host whose egress re-terminates TLS. There, T10.1.a and T10.1.c would read the egress proxy's handshake and certificate, not the platform's: the plan's sandboxes are such hosts (every site's certificate there is issued by the sandbox's egress gateway), and their network policy also blocks Supabase and the hosting platforms. net.sh needs Docker and the image on that machine (T10.6.c's load runs inside it).
 
 Checklist
 - [ ] T11.1.a cron SQL targets v1 with an idempotency key
-- [ ] T11.1.b manual trigger creates exactly one run
-- [ ] T11.1.c scheduled slot succeeded end to end
-- [ ] T11.1.d Phase 10's edge checks pass against the deployment
+- [ ] T11.1.b manual trigger creates exactly one run (BLOCKED: v1 is not deployed where Supabase calls it, and this sandbox cannot reach Supabase or a platform; rehearsed on the local stand-in)
+- [ ] T11.1.c scheduled slot succeeded end to end (BLOCKED: as T11.1.b)
+- [ ] T11.1.d Phase 10's edge checks pass against the deployment (BLOCKED: no deployment or staging yet, and it must run from a host without TLS interception)
 - [ ] GATE P11
 
 ---

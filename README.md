@@ -277,14 +277,19 @@ one a local Caddy standing in for it.
 
 Supabase cannot run Python, so the schedule lives in Supabase and the work in
 the API. `supabase/migrations/20261004000004_schedule_daily_ingest.sql` uses
-pg_cron and pg_net to POST `/ingest/all` at **06:00, 08:00 and 10:00 UTC**.
+pg_cron and pg_net to start an ingest run at **06:00, 08:00 and 10:00 UTC**:
+since `20261007000010_schedule_v1.sql`, a `POST /v1/ingest-runs` whose
+`Idempotency-Key` names the slot (`registerwatch-cron-2026-10-08-06-all`). A slot
+that fires twice starts one run, and `GET /v1/ingest-runs` lists every run.
 Registers that already have a good snapshot skip the later slots, so those
 slots retry only what failed.
 
 1. Deploy the API somewhere Supabase can reach over HTTPS. The `Dockerfile`
    runs on Railway, Fly or Render. Set `DATABASE_URL`, `INGEST_TOKEN` and
    `USER_AGENT` (a real contact), plus `BLOB_BACKEND=s3` and the `S3_*` keys,
-   because a container's disk does not survive a deploy.
+   because a container's disk does not survive a deploy. Set
+   `FORWARDED_ALLOW_IPS` to the platform proxy's addresses (On the network), and
+   `WEB_CONCURRENCY=2` on two CPUs for 100 requests a second.
 2. In the Supabase SQL editor, once:
    ```sql
    select vault.create_secret('https://<your-api-host>', 'registerwatch_api_url');
@@ -294,9 +299,15 @@ slots retry only what failed.
 4. Check it without waiting for 06:00:
    ```sql
    select registerwatch_private.trigger_ingest();          -- all; or trigger_ingest('pl_mf')
-   select status_code, content from net._http_response order by created desc limit 1;  -- 202
+   select status_code, content from net._http_response order by created desc limit 1;  -- 202 and the run
    select * from cron.job_run_details order by start_time desc limit 5;
    ```
+   The same call again in the same UTC hour answers 200 with the same run, and
+   `trigger_ingest('pl_mf', true)` (force) is a run of its own. A job run marked
+   `succeeded` only means the SQL ran: what the API answered is in
+   `net._http_response`. `scripts/verify/cron.sh` makes these checks against a
+   project (`RW_SUPABASE_DB_URL`, `RW_EDGE`, `RW_INGEST_TOKEN`), or, without one,
+   against Supabase's own Postgres image running locally.
 
 ## Testing against Postgres
 
