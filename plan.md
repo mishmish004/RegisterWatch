@@ -1049,7 +1049,7 @@ limits, so every request goes through the limiter and none is refused. The mix: 
 licence pages (100 rows, the default), 20 % two domain checks, 10 % three searches.
 Corrected (T10.6.a): one worker cannot meet the budget. On this host it kept up with the mix at 60 and
 80 rps for 60 s (p95 102 and 62 ms, p99 441 and 116 ms), and at 100 rps fell behind on its one CPU:
-over the 120 s, p50 3.1 s and p95 4.7 s, every class alike. So T10.6.a runs with
+in two runs of T10.6.a, p50 3.1 and 11.7 s, p95 4.7 and 19.9 s, every class alike. So T10.6.a runs with
 `WEB_CONCURRENCY=2` (this host has 4 CPUs). The default stays 1, as a small instance has one CPU;
 the README says what one and two workers serve. T10.6.a measures its 120 s after 10 s at the same
 rate (`--warmup 10`), reported on the same line and held to no 5xx but not to the budget: the first

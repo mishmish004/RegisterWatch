@@ -221,7 +221,7 @@ if wanted T10.4.b; then
 fi
 
 if wanted T10.4.c; then
-  helper -- net_probe.py oversize "$BASE/v1/ingest-runs" --bytes 2097152 --token "$TOKEN" > "$TMP/big"
+  helper -- net_probe.py oversize "$BASE/v1/ingest-runs" --bytes 2097152 --token="$TOKEN" > "$TMP/big"
   code=$(c -o "$TMP/big100" -w '%{http_code} %{size_upload} %{time_total}' -H "Authorization: Bearer $TOKEN" \
            -H 'Content-Type: application/json' --data-binary @<(head -c 2097152 /dev/zero | tr '\0' ' ') "$BASE/v1/ingest-runs")
   verdict=$(py '"ok" if d["status_line"].startswith("HTTP/1.1 413") and d["body"]["type"].endswith("#content-too-large") and "connection: close" in [h.lower() for h in d["headers"]] and d["answered_ms"] < 500 and d["closed_ms"] is not None and d["closed_ms"] < 3000 else "no"' "$TMP/big")
@@ -277,7 +277,7 @@ if wanted T10.6.b; then
   api rw-net-limit $((PORT + 5)) -e READ_TOKEN="$READ" -e WEB_CONCURRENCY=1
   helper -- net_probe.py poll "http://127.0.0.1:$((PORT + 5))/readyz" --every 0.5 --seconds 62 > "$TMP/ready" &
   rp=$!
-  helper -- load.py --base "http://127.0.0.1:$((PORT + 5))" --rps 30 --duration 60 --token "$READ" --path "$ROWS" > "$TMP/over"
+  helper -- load.py --base "http://127.0.0.1:$((PORT + 5))" --rps 30 --duration 60 --token="$READ" --path "$ROWS" > "$TMP/over"
   wait $rp
   for i in $(seq 100); do  # spend what refilled meanwhile, and show the refusal
     c -D "$TMP/h429" -o /dev/null -H "Authorization: Bearer $READ" "http://127.0.0.1:$((PORT + 5))$ROWS"

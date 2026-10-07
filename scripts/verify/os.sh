@@ -92,7 +92,7 @@ load() { docker run --rm --label registerwatch.verify=os --network host -v "$ROO
            /verify/load.py --base "$BASE" "$@"; }
 locks() { probe sql "SELECT count(*) AS n FROM pg_locks WHERE locktype = 'advisory'" > "$TMP/locks" && py 'd[0]["n"]' "$TMP/locks"; }
 # run_get ID: the ingest run, as os_probe's get prints it.
-run_get() { probe get "$BASE/v1/ingest-runs/$1" --token "$TOKEN" > "$TMP/run"; }
+run_get() { probe get "$BASE/v1/ingest-runs/$1" --token="$TOKEN" > "$TMP/run"; }
 mem_mib() { docker stats --no-stream --format '{{.MemUsage}}' "$1" | python3 -c "
 import re, sys
 n, unit = re.match(r'([\d.]+)\s*([KMG]i?B)', sys.stdin.read()).groups()
@@ -220,7 +220,7 @@ fi
 if wanted T9.3.b; then
   # start_run NAME: a 4-register run on the fake slow engine (20 s each), in hand for 2 s.
   start_run() {
-    probe get "$BASE/v1/ingest-runs" --method POST --token "$TOKEN" \
+    probe get "$BASE/v1/ingest-runs" --method POST --token="$TOKEN" \
       --body '{"registers": ["gb_ukgc", "de_ggl", "fr_anj", "pl_mf"]}' > "$TMP/created"
     run_id=$(py 'd["body"]["id"]' "$TMP/created")
     local i; for i in $(seq 50); do run_get "$run_id"; [ "$(py 'd["body"]["status"]' "$TMP/run")" = running ] && break; sleep 0.1; done
