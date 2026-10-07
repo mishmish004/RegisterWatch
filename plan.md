@@ -885,25 +885,25 @@ requests in flight, each latency still counted from when it was due. The first v
 and it buried the server: once the server fell behind, the client opened ever more connections,
 past `--limit-concurrency`, and httpx's pool spent all its time on thousands of waiting requests.
 Here one worker serves about 40 of these pages a second (about 25 ms of CPU each, on one core),
-so 50 rps saturates it: in two runs the 6,000 requests took 143 and 152 s, p50 9.4 and 15.9 s.
+so 50 rps saturates it: in three runs the 6,000 requests took 143 to 152 s, p50 9.4 to 16.6 s.
 That is recorded, not a T9.4 criterion; Phase 10's latency budget (T10.6) will have to answer it,
 with smaller pages or more workers. The descriptors left 10 s after the load are the read pool, grown to DB_POOL_MAX, which
 keeps its connections until they have been idle for 10 minutes.
 
 Checklist
-- [ ] T9.1.a runs as uid 10001
-- [ ] T9.1.b works on a read-only root fs
-- [ ] T9.1.c Docker healthcheck healthy
-- [ ] T9.1.d image size recorded and ≤ 250 MB
-- [ ] T9.1.e package data present in the image
-- [ ] T9.2.a app is PID 1
-- [ ] T9.2.b open-file limit ≥ 4096
-- [ ] T9.2.c concurrency limit sheds load fast
-- [ ] T9.3.a idle stop under 3 s, exit 0
-- [ ] T9.3.b stop during ingest marks run partial, lock freed
-- [ ] T9.3.c in-flight reads finish on stop
-- [ ] T9.4.a no memory or fd leak under load
-- [ ] GATE P9
+- [x] ~~T9.1.a runs as uid 10001~~
+- [x] ~~T9.1.b works on a read-only root fs~~
+- [x] ~~T9.1.c Docker healthcheck healthy~~
+- [x] ~~T9.1.d image size recorded and ≤ 250 MB~~
+- [x] ~~T9.1.e package data present in the image~~
+- [x] ~~T9.2.a app is PID 1~~
+- [x] ~~T9.2.b open-file limit ≥ 4096~~
+- [x] ~~T9.2.c concurrency limit sheds load fast~~
+- [x] ~~T9.3.a idle stop under 3 s, exit 0~~
+- [x] ~~T9.3.b stop during ingest marks run partial, lock freed~~
+- [x] ~~T9.3.c in-flight reads finish on stop~~
+- [x] ~~T9.4.a no memory or fd leak under load~~
+- [x] ~~GATE P9~~
 
 ---
 
@@ -1053,7 +1053,7 @@ Strike a phase here only after its `GATE` line is struck.
 - [x] ~~Phase 6. Security schemes and authorization~~
 - [x] ~~Phase 7. Caching, rate limiting, query cost~~
 - [x] ~~Phase 8. Probes, status, and the database pool~~
-- [ ] Phase 9. OS and container level
+- [x] ~~Phase 9. OS and container level~~
 - [ ] Phase 10. Network level
 - [ ] Phase 11. Scheduler migration (Supabase cron)
 - [ ] Phase 12. Legacy deprecation, removal, sign-off
