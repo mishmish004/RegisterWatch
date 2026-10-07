@@ -720,13 +720,22 @@ finish on its own, and the probe answers 503 at 2 s either way. So with the read
 `/v1/status` (`getStatus`, `http/v1/status.py`) lists every register with `stale`,
 `hours_since_good` and the `freshness` object `getRegister` has, under `stale`, `database`
 (`ok`/`unreachable`), `stale_after_h`, `stale_registers` and `checked_at`. With the database
-unreachable, every register is stale with `freshness: null`. `?strict=true` answers the same
+unreachable, every register is stale with `freshness: null`. Its freshness lookup has `/readyz`'s
+2 s deadline (`probes.in_time`, on four threads of its own), and the handler and its parameter
+check are `async`, so nothing in it waits on the request threads. The first build had no deadline
+there: on a real server with Postgres paused (`docker pause`), `/v1/status` hung until the
+database came back, since the pool's connections were open and their queries unanswered. It now
+answers 200 `unreachable` at 2 s. Other reads on a paused database still wait for it, one per
+read connection; the rest get the pool's 503 after `DB_POOL_TIMEOUT_S`, so the server keeps
+answering, and the stuck ones finish when the database does. `?strict=true` answers the same
 document with a 503, not a problem: the request did not fail, it asked for staleness as a status
 code. Schemathesis' `not_a_server_error` counts any 5xx, so the contract test exempts exactly that
 case (a `getStatus` 503 whose body says `stale: true`); the other checks still hold it to the spec.
 An undeclared parameter is a 400 here as on every v1 operation, so a monitor's `?stict=true` is
 an error, not a quiet "not strict". T8.1.a patches nothing: the app's real pool points at a port
-where nothing listens (refused), or where the kernel accepts and nothing ever answers (hung).
+where nothing listens (refused), or where the kernel accepts and nothing ever answers (hung), or
+**[pg]** through a proxy that stops passing bytes once the pool holds connections (frozen, which
+is the paused server), then lets them through again to show the app recovers.
 
 **P8.2 Pool sizing and starvation behaviour.**
 Pool `max_size` from `DB_POOL_MAX` (default 10), `timeout` from `DB_POOL_TIMEOUT_S`

@@ -152,7 +152,7 @@ pass `next_cursor` back as `cursor` for the next page (also in a `Link: rel="nex
 | `GET /v1/domains/{domain}` | `licensed_in`, `blocked_in` and each matching row |
 | `POST /v1/ingest-runs` | ingest token. Body `{"registers": [...]}`, `{"jurisdiction": "ch"}` or `{}` for all, plus `force`, `accept_count_delta`. 202 with the run and `Location`; 409 linking the active run (one at a time across every replica); `Idempotency-Key` replays the same run for 24 h |
 | `GET /v1/ingest-runs`, `/v1/ingest-runs/{id}` | ingest token. Runs newest first with per-register results; stored in Postgres, so they survive restarts. A run cut short by shutdown is `partial` with `not_started` |
-| `GET /v1/status` | open. Every register's freshness, `stale`, `stale_registers` and `database` (`ok` or `unreachable`). Always 200, so stale data never looks like a broken server; `?strict=true` answers the same document with **503** when anything is stale, for uptime monitors |
+| `GET /v1/status` | open. Every register's freshness, `stale`, `stale_registers` and `database` (`ok`, or `unreachable` when it does not answer within 2 s). Always 200, so stale data never looks like a broken server; `?strict=true` answers the same document with **503** when anything is stale, for uptime monitors |
 | `GET /livez` | open, unversioned. The process answers; touches nothing. Point a liveness probe here |
 | `GET /readyz` | open, unversioned. The database answers `SELECT 1` within 2 s, else 503 `database-unavailable`. Point a readiness probe here |
 

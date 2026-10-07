@@ -516,7 +516,8 @@ class Status(BaseModel):
         "registers": [RegisterStatus.model_config["json_schema_extra"]["examples"][0]]})
     stale: bool = Field(description="Any register is stale, or the database cannot be reached")
     database: Literal["ok", "unreachable"] = Field(
-        description="`unreachable`: no connection within the pool timeout, or the query failed")
+        description="`unreachable`: the query failed, or no answer within 2 s (the database is down, has "
+                    "stopped answering, or has no connection free)")
     stale_after_h: float = Field(description="A register is stale once its newest complete snapshot is older")
     stale_registers: list[str]
     checked_at: datetime

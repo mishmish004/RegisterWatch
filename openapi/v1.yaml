@@ -979,7 +979,7 @@ paths:
       - operations
       summary: Freshness of every register
       description: Always 200 unless `strict=true`. A register is stale once its newest complete snapshot
-        is older than `stale_after_h` hours, or when the database cannot be reached.
+        is older than `stale_after_h` hours, or when the database does not answer within 2 s.
       operationId: getStatus
       parameters:
       - name: strict
@@ -2712,7 +2712,8 @@ components:
           - ok
           - unreachable
           title: Database
-          description: '`unreachable`: no connection within the pool timeout, or the query failed'
+          description: '`unreachable`: the query failed, or no answer within 2 s (the database is down,
+            has stopped answering, or has no connection free)'
         stale_after_h:
           type: number
           title: Stale After H

@@ -4,17 +4,21 @@
 2 s. `/v1/status` is freshness: always a 200, unless `strict=true` asks for the
 old 503. "Database down" is real here, not a patch: the app's own pools pointed
 at a port where nothing listens (refused), or where the kernel accepts the
-connection and nothing ever answers (hung, like a server that has stopped).
+connection and nothing ever answers (hung, like a server that has stopped), or
+[pg] through a proxy that stops passing bytes once the pool holds connections
+(frozen).
 """
 
 from __future__ import annotations
 
 import contextlib
 import socket
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
@@ -24,6 +28,9 @@ from registerwatch.http.problems import Catalog
 from registerwatch.ingest import runs
 from registerwatch.registers import REGISTRY
 from tests.test_contract import _FakeConn
+from tests.test_postgres import DSN, db  # noqa: F401 — fixture
+
+pg = pytest.mark.skipif(not DSN, reason="REGISTERWATCH_TEST_DATABASE_URL not set")
 
 READ_TOKEN = "read-token-0123456789abcdefghijklmnopqrstuvwxyz"
 SLUGS = sorted(REGISTRY)
@@ -87,6 +94,83 @@ def test_with_the_database_down(kind, pool_timeout_s, configure, monkeypatch):  
             assert strict.json()["database"] == "unreachable" and strict.json()["stale"] is True
         finally:
             down.close()  # before the pool closes, so its connection attempts end
+
+
+class Freezer:
+    """A TCP proxy in front of the test database that can stop passing bytes
+    while every connection stays open: a server that has stopped answering
+    (paused, swapped out, a network gone quiet after the handshake). Unlike
+    `Down`, the pool already holds connections when it happens, and a query sent
+    on one waits for an answer no timeout of the database's own can end."""
+
+    def __init__(self, dsn: str) -> None:
+        upstream = psycopg.conninfo.conninfo_to_dict(dsn)
+        self.upstream = (upstream.get("host") or "localhost", int(upstream.get("port") or 5432))
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.url = psycopg.conninfo.make_conninfo(dsn, host="127.0.0.1", port=self.listener.getsockname()[1])
+        self.flowing = threading.Event()
+        self.flowing.set()
+        self.socks: list[socket.socket] = []
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    def _accept(self) -> None:
+        while True:
+            try:
+                client, _ = self.listener.accept()
+            except OSError:
+                return
+            server = socket.create_connection(self.upstream)
+            self.socks += [client, server]
+            for src, dst in ((client, server), (server, client)):
+                threading.Thread(target=self._pump, args=(src, dst), daemon=True).start()
+
+    def _pump(self, src: socket.socket, dst: socket.socket) -> None:
+        with contextlib.suppress(OSError):
+            while data := src.recv(65536):
+                self.flowing.wait()
+                dst.sendall(data)
+        with contextlib.suppress(OSError):
+            dst.shutdown(socket.SHUT_WR)
+
+    def close(self) -> None:
+        self.flowing.set()
+        self.listener.close()
+        for sock in self.socks:
+            with contextlib.suppress(OSError):
+                sock.close()
+
+
+@pg
+def test_with_the_database_frozen(db, configure, monkeypatch):  # noqa: F811 — T8.1.a, a third way to be down
+    """Up, then frozen with the pool's connections open, then back."""
+    freezer = Freezer(DSN)
+    configure(DATABASE_URL=freezer.url)
+    with TestClient(api.app) as client:
+        try:
+            assert client.get("/readyz").status_code == 200
+            assert client.get("/v1/status").json()["database"] == "ok"
+            freezer.flowing.clear()
+            unstick = threading.Timer(10, freezer.flowing.set)  # a hang fails the test instead of hanging it
+            unstick.start()
+
+            live, took = _timed(client, "/livez")
+            assert live.status_code == 200 and took < 0.5, took
+            for path, code in (("/readyz", 503), ("/v1/status", 200), ("/v1/status?strict=true", 503)):
+                r, took = _timed(client, path)
+                assert r.status_code == code, (path, r.text)
+                assert probes.READY_WITHIN_S <= took < probes.READY_WITHIN_S + 0.5, (path, took)
+                if path.startswith("/v1/status"):
+                    assert r.json()["database"] == "unreachable" and r.json()["stale"] is True, path
+
+            unstick.cancel()
+            freezer.flowing.set()  # the stuck queries finish and give their connections back
+            deadline = time.monotonic() + 5
+            while (ready := client.get("/readyz")).status_code != 200 and time.monotonic() < deadline:
+                pass
+            assert ready.status_code == 200
+            assert client.get("/v1/status").json()["database"] == "ok"
+        finally:
+            freezer.close()
 
 
 # --- T8.1.b ------------------------------------------------------------------------------
@@ -163,22 +247,26 @@ def test_probes_and_status_are_open_and_never_stored(client):
         assert r.headers["cache-control"] == "no-store" and "etag" not in r.headers, path
 
 
-class _Stuck(_FakeConn):
-    """A connection whose query does not come back for a while: a server that
-    has stopped answering, or a network gone quiet. No timeout of the
-    database's own can end that wait."""
+@contextlib.contextmanager
+def _stuck():
+    """A transaction whose first statement does not come back for a while: a
+    server that has stopped answering, or a network gone quiet. No timeout of
+    the database's own can end that wait."""
+    time.sleep(3)
+    yield _FakeConn()
 
-    def execute(self, query, *a, **k):
-        time.sleep(3)
-        return super().execute(query, *a, **k)
 
-
-def test_readyz_answers_in_time_when_the_database_does_not(client, monkeypatch):
-    """The answer comes at 2 s; the stuck check is left to finish on its own."""
-    monkeypatch.setattr(deps, "tx", lambda: contextlib.nullcontext(_Stuck()))
+def test_readyz_and_status_answer_in_time_when_the_database_does_not(client, monkeypatch):
+    """The answers come at 2 s; the stuck queries are left to finish on their own."""
+    monkeypatch.setattr(deps, "tx", _stuck)
     r, took = _timed(client, "/readyz")
     assert r.status_code == 503 and r.json()["type"] == Catalog.DATABASE_UNAVAILABLE.type
     assert probes.READY_WITHIN_S <= took < probes.READY_WITHIN_S + 0.5, took
+    for path, code in (("/v1/status", 200), ("/v1/status?strict=true", 503)):
+        r, took = _timed(client, path)
+        assert r.status_code == code and r.json()["database"] == "unreachable", path
+        assert r.json()["stale_registers"] == SLUGS, path
+        assert probes.READY_WITHIN_S <= took < probes.READY_WITHIN_S + 0.5, (path, took)
     assert client.get("/livez").status_code == 200
 
 

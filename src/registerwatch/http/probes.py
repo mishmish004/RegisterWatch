@@ -6,7 +6,8 @@
   /readyz  the database answers `SELECT 1` within READY_WITHIN_S, else a 503
            `database-unavailable`. The check runs on threads of its own, so busy
            request threads cannot delay it, and one that has not answered in
-           time is left to finish on its own: the probe still answers on time.
+           time is left to finish on its own: the probe still answers on time
+           (`in_time`, which `/v1/status` uses too).
 
 Both are open, never rate limited (http/ratelimit.py) and never stored
 (http/caching.py). `/v1/status` says how fresh the data is; neither probe does,
@@ -16,6 +17,8 @@ since stale data is no reason to restart or unroute a healthy process (F13).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
+from typing import TypeVar
 
 import anyio
 import psycopg
@@ -30,6 +33,7 @@ log = logging.getLogger(__name__)
 READY_WITHIN_S = 2.0
 # Readiness checks in flight at once. An abandoned one gives its place back.
 _CHECKS = anyio.CapacityLimiter(2)
+T = TypeVar("T")
 
 router = APIRouter(tags=["operations"])
 _OPEN = {"security": []}
@@ -48,8 +52,7 @@ async def livez() -> Probe:
             responses=responses(400, 500, 503), openapi_extra=_OPEN)
 async def readyz() -> Probe:
     try:
-        with anyio.fail_after(READY_WITHIN_S):
-            await anyio.to_thread.run_sync(_select_1, abandon_on_cancel=True, limiter=_CHECKS)
+        await in_time(_select_1, _CHECKS)
     except (TimeoutError, psycopg.Error) as exc:
         log.warning("not ready: %s", type(exc).__name__)
         raise ProblemError(Catalog.DATABASE_UNAVAILABLE,
@@ -60,3 +63,13 @@ async def readyz() -> Probe:
 def _select_1() -> None:
     with deps.connection() as conn:
         conn.execute("SELECT 1")
+
+
+async def in_time(check: Callable[[], T], limiter: anyio.CapacityLimiter) -> T:
+    """`check()` on a thread of `limiter`'s, or TimeoutError at READY_WITHIN_S.
+    A pool timeout bounds only the wait for a connection; this also bounds a
+    query on a connection whose server has stopped answering. A check still
+    running then is left to finish on its own, holding its connection until
+    the server answers or the connection breaks."""
+    with anyio.fail_after(READY_WITHIN_S):
+        return await anyio.to_thread.run_sync(check, abandon_on_cancel=True, limiter=limiter)
