@@ -149,6 +149,8 @@ pass `next_cursor` back as `cursor` for the next page (also in a `Link: rel="nex
 | `GET /v1/registers/{slug}/snapshots` | every ingest run, complete or not, newest first, with the reason when it was not |
 | `GET /v1/search?q=betway&jurisdiction=gb&jurisdiction=de` | one entry per table with a match, with a `rows_url` for all of them |
 | `GET /v1/domains/{domain}` | `licensed_in`, `blocked_in` and each matching row |
+| `POST /v1/ingest-runs` | ingest token. Body `{"registers": [...]}`, `{"jurisdiction": "ch"}` or `{}` for all, plus `force`, `accept_count_delta`. 202 with the run and `Location`; 409 linking the active run (one at a time across every replica); `Idempotency-Key` replays the same run for 24 h |
+| `GET /v1/ingest-runs`, `/v1/ingest-runs/{id}` | ingest token. Runs newest first with per-register results; stored in Postgres, so they survive restarts. A run cut short by shutdown is `partial` with `not_started` |
 
 Errors from `/v1` are RFC 9457 problems (`application/problem+json`); each `type`
 links to its section of [docs/problems.md](docs/problems.md). A parameter an

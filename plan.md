@@ -478,6 +478,10 @@ Migration `migrations/2026101000000x_ingest_runs.sql` (plain Postgres, mirrored)
 `ingest_runs(id uuid pk, status text check in ('queued','running','succeeded','partial','failed'), requested jsonb, idempotency_key text unique null, request_hash bytea, created_at, started_at, finished_at, error text)` and
 `ingest_run_results(run_id fk, slug, snapshot_id fk null, complete, skipped, reason)`.
 RLS on and grants revoked, as in `20261004000006_lock_down_public.sql`.
+As built: `20261007000008_ingest_runs.sql` (the next version after Phase 4's `…000007`).
+`ingest_runs` also stores `registers` (what the request resolved to, in run order) and
+`not_started`; `ingest_run_results` also stores `position`, `unchanged`, `record_count` and
+`finished_at`. The key is unique while set; the API clears keys older than 24 h before it looks.
 - T5.1.a **[pg]** Migration applies on a database already at today's head, and twice.
 - T5.1.b **[pg]** As role `anon` (created in the test), `SELECT * FROM ingest_runs` is denied.
 
@@ -485,7 +489,11 @@ RLS on and grants revoked, as in `20261004000006_lock_down_public.sql`.
 Replace `threading.Lock` with `pg_try_advisory_lock(<constant>)` held on a dedicated
 connection for the run's duration (session-level, released on disconnect, so a crashed
 replica frees it).
-- T5.2.a **[pg]** Two app instances (two `TestClient`s on two pools against one DB): the second `POST /v1/ingest-runs` while the first runs → 409 `ingest-in-progress` with `active_run` pointing at the first.
+As built: the advisory lock is added, not swapped in. The `threading.Lock` stays, shared with
+the legacy `/ingest` routes until Phase 12, so legacy and v1 runs never overlap in one process;
+across processes only the advisory lock decides. The sweep runs at startup and again whenever
+the lock is taken, since only the lock's holder can know an active row has lost its worker.
+- T5.2.a **[pg]** Two app instances (as run: the second is a separate Python process, so it has its own `threading.Lock` and only the advisory lock can refuse it): the second `POST /v1/ingest-runs` while the first runs → 409 `ingest-in-progress` with `active_run` pointing at the first.
 - T5.2.b **[pg]** Kill the connection holding the lock (`pg_terminate_backend`) → the next POST is accepted; the orphaned run is marked `failed` with `error='worker lost'` by a startup sweep.
 
 **P5.3 Endpoints.**
@@ -494,16 +502,23 @@ Body validated: exactly one of `registers` or `jurisdiction`, or neither for all
 `Idempotency-Key` (≤ 255 chars): same key + same body within 24 h returns the original
 run (200), same key + different body → 422. `GET /v1/ingest-runs` (cursor by
 `created_at desc, id`), `GET /v1/ingest-runs/{id}`. `?wait` is not carried to v1.
-- T5.3.a POST returns 202, `Location` resolves to 200 with `status` in (`queued`,`running`); after the fake engine finishes, `status == 'succeeded'` and per-register results are present.
-- T5.3.b Same `Idempotency-Key` twice → one run created; second response 200 with the same id.
-- T5.3.c Same key, different body → 422 `idempotency-key-reused`.
+As built: T5.3.a, b, c and f are **[pg]**: with runs held in memory they would prove nothing
+about F3. T5.3.d and e run without a database (they are refused before it is reached).
+- T5.3.a **[pg]** POST returns 202, `Location` resolves to 200 with `status` in (`queued`,`running`); after the fake engine finishes, `status == 'succeeded'` and per-register results are present.
+- T5.3.b **[pg]** Same `Idempotency-Key` twice → one run created; second response 200 with the same id.
+- T5.3.c **[pg]** Same key, different body → 422 `idempotency-key-reused`.
 - T5.3.d `{"registers": ["xx_nope"]}` → 404 `register-not-found`; `{"registers": [], "jurisdiction": "gb"}` → 400.
 - T5.3.e Read token on POST → 403; no token → 401 with `WWW-Authenticate`.
-- T5.3.f After an app restart (new `TestClient`), `GET /v1/ingest-runs/{id}` of a finished run still returns it (F3 regression).
+- T5.3.f **[pg]** After an app restart (new `TestClient`), `GET /v1/ingest-runs/{id}` of a finished run still returns it (F3 regression).
 
 **P5.4 Graceful shutdown of a running batch.**
 On SIGTERM, stop starting new registers, let the current register finish (bounded by
 `SHUTDOWN_GRACE_S`, default 60), mark the run `partial` with the unstarted registers listed.
+As built: the app side is a `STOP` event set by a SIGTERM handler that then hands the signal
+on to uvicorn; uvicorn's graceful shutdown waits for the background run. The bound
+(`--timeout-graceful-shutdown`, `SHUTDOWN_GRACE_S`) is set where the server is started, which
+P9.3 owns. A run still going when the bound kills the process is left `running` and the next
+holder's sweep fails it (`worker lost`), as in T5.2.b.
 - T5.4.a Unit: the engine loop checks a stop event between registers (fake engine with 5 registers, stop after 2 → run `partial`, results for 2, `not_started` lists 3).
 - T5.4.b Covered at OS level in T9.3.b.
 

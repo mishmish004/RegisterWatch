@@ -33,7 +33,7 @@ def db():
     with psycopg.connect(DSN, autocommit=True) as c:
         for r in all_registers():
             c.execute(f"DROP SCHEMA IF EXISTS {r.slug} CASCADE")
-        c.execute("DROP TABLE IF EXISTS raw_snapshots, sources, host_state CASCADE")
+        c.execute("DROP TABLE IF EXISTS ingest_run_results, ingest_runs, raw_snapshots, sources, host_state CASCADE")
         for path in sorted((ROOT / "src" / "registerwatch" / "migrations").glob("*.sql")):
             c.execute(path.read_text())
 
@@ -82,6 +82,8 @@ def test_supabase_migrations_upgrade_a_database_made_by_older_ones():
     upgrade the views and indexes an older version created (T4.1.b)."""
     import psycopg
 
+    from registerwatch.cli import SCHEMA_MIGRATION
+
     supabase = ROOT / "supabase" / "migrations"
     # pg_cron/pg_net exist only on Supabase; that file schedules, it does not shape tables.
     files = [p for p in sorted(supabase.glob("*.sql")) if "schedule" not in p.name]
@@ -94,7 +96,9 @@ def test_supabase_migrations_upgrade_a_database_made_by_older_ones():
                 c.execute(path.read_text())
             n = c.execute("SELECT count(*) FROM pg_indexes WHERE indexname = 'licences_current_id'").fetchone()[0]
             c.execute("SELECT id, first_seen_snapshot_id FROM gb_ukgc.current_licences LIMIT 1")
-        assert [p.name for p in files][-1].endswith("_register_schemas.sql") and n >= 1
+            c.execute("SELECT id FROM ingest_runs LIMIT 1")  # T5.1.a: 0008 reaches Supabase too
+        schemas = [p.name for p in files if p.name.endswith("_register_schemas.sql")]
+        assert schemas[-1] == SCHEMA_MIGRATION and n >= 1
     finally:
         with psycopg.connect(DSN, autocommit=True) as admin:
             admin.execute("DROP DATABASE IF EXISTS rw_upgrade")

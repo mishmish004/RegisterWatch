@@ -26,17 +26,17 @@ from registerwatch import api
 from registerwatch.http import deps, problems, request_id
 from registerwatch.http.problems import Catalog, ProblemError
 from registerwatch.http.v1 import registers as v1_registers
+from registerwatch.ingest import runs
 from tests.test_postgres import DSN, db, loaded  # noqa: F401 — fixtures for the [pg] test
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 ROWS = "/v1/registers/gb_ukgc/tables/licences/rows"
 
 # Raised by a patch until the named phase adds the feature that raises it.
-LATER = {
-    Catalog.FORBIDDEN: "P6", Catalog.INGEST_RUN_NOT_FOUND: "P5",
-    Catalog.INGEST_IN_PROGRESS: "P5", Catalog.UNSUPPORTED_MEDIA_TYPE: "P5",
-    Catalog.IDEMPOTENCY_KEY_REUSED: "P5", Catalog.RATE_LIMITED: "P7", Catalog.INGEST_DISABLED: "P5",
-}
+LATER = {Catalog.RATE_LIMITED: "P7"}
+INGEST = {"Authorization": "Bearer ingest-token"}
+RUNS = "/v1/ingest-runs"
+RUN_ID = "0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11"
 
 
 @pytest.fixture
@@ -62,42 +62,60 @@ def _raise(exc):
     return raiser
 
 
-def _trigger(entry: Catalog, client, monkeypatch) -> tuple[str, str]:
-    """Make the app answer with `entry`; returns (method, path)."""
+def _trigger(entry: Catalog, client, monkeypatch) -> tuple[str, str, dict]:
+    """Make the app answer with `entry`; returns (method, path, request kwargs)."""
     if entry in LATER:
         monkeypatch.setattr(v1_registers, "freshness", _raise(ProblemError(entry, f"forced {entry.slug}")))
-        return "GET", "/v1/registers/gb_ukgc"
+        return "GET", "/v1/registers/gb_ukgc", {}
     match entry:
+        case Catalog.FORBIDDEN:
+            client.cfg.read_token = "read-token"
+            return "GET", RUNS, {"headers": {"Authorization": "Bearer read-token"}}
+        case Catalog.INGEST_DISABLED:
+            client.cfg.ingest_token = ""
+            return "GET", RUNS, {"headers": INGEST}
+        case Catalog.INGEST_RUN_NOT_FOUND:
+            monkeypatch.setattr(runs.repo, "get", lambda conn, run_id: None)
+            return "GET", f"{RUNS}/{RUN_ID}", {"headers": INGEST}
+        case Catalog.INGEST_IN_PROGRESS:
+            monkeypatch.setattr(runs, "acquire", lambda: None)
+            monkeypatch.setattr(runs.repo, "active", lambda conn: {"id": RUN_ID})
+            return "POST", RUNS, {"headers": INGEST}
+        case Catalog.UNSUPPORTED_MEDIA_TYPE:
+            return "POST", RUNS, {"headers": {**INGEST, "Content-Type": "text/plain"}, "content": "gb_ukgc"}
+        case Catalog.IDEMPOTENCY_KEY_REUSED:
+            monkeypatch.setattr(runs.repo, "by_key", lambda conn, key: {"id": RUN_ID, "request_hash": b"other"})
+            return "POST", RUNS, {"headers": {**INGEST, "Idempotency-Key": "k"}, "json": {"jurisdiction": "ch"}}
         case Catalog.INVALID_PARAMETER:
-            return "GET", ROWS + "?limit=0"
+            return "GET", ROWS + "?limit=0", {}
         case Catalog.UNKNOWN_FILTER_COLUMN:
-            return "GET", ROWS + "?filter[nope]=1"
+            return "GET", ROWS + "?filter[nope]=1", {}
         case Catalog.INVALID_CURSOR:
-            return "GET", ROWS + "?cursor=not-a-cursor"
+            return "GET", ROWS + "?cursor=not-a-cursor", {}
         case Catalog.UNAUTHENTICATED:
             client.cfg.read_token = "read-token"
-            return "GET", "/v1/registers"
+            return "GET", "/v1/registers", {}
         case Catalog.NOT_FOUND:
-            return "GET", "/v1/nope"
+            return "GET", "/v1/nope", {}
         case Catalog.JURISDICTION_NOT_FOUND:
-            return "GET", "/v1/jurisdictions/zz"
+            return "GET", "/v1/jurisdictions/zz", {}
         case Catalog.REGISTER_NOT_FOUND:
-            return "GET", "/v1/registers/xx_nope"
+            return "GET", "/v1/registers/xx_nope", {}
         case Catalog.TABLE_NOT_FOUND:
-            return "GET", "/v1/registers/gb_ukgc/tables/nope"
+            return "GET", "/v1/registers/gb_ukgc/tables/nope", {}
         case Catalog.ROW_NOT_FOUND:
-            return "GET", ROWS + "/999"
+            return "GET", ROWS + "/999", {}
         case Catalog.METHOD_NOT_ALLOWED:
-            return "POST", "/v1/registers"
+            return "POST", "/v1/registers", {}
         case Catalog.INTERNAL:
             monkeypatch.setattr(api.query, "row_page", _raise(RuntimeError("secret internals in /srv/app.py")))
-            return "GET", ROWS
+            return "GET", ROWS, {}
         case Catalog.DATABASE_UNAVAILABLE:
             monkeypatch.setattr(deps, "tx", _raise(PoolTimeout("couldn't get a connection after 30.00 sec")))
-            return "GET", ROWS
+            return "GET", ROWS, {}
         case Catalog.QUERY_TIMEOUT:
             monkeypatch.setattr(api.query, "row_page", _raise(psycopg.errors.QueryCanceled("canceling statement")))
-            return "GET", ROWS
+            return "GET", ROWS, {}
     raise AssertionError(f"no trigger for {entry}")
 
 
@@ -105,8 +123,9 @@ def _trigger(entry: Catalog, client, monkeypatch) -> tuple[str, str]:
 
 @pytest.mark.parametrize("entry", list(Catalog), ids=lambda e: e.slug)
 def test_every_catalog_entry_is_a_problem(entry, client, monkeypatch):
-    method, path = _trigger(entry, client, monkeypatch)
-    r = client.request(method, path, headers={"X-Request-Id": f"t31a-{entry.slug}"})
+    method, path, kw = _trigger(entry, client, monkeypatch)
+    kw["headers"] = {**kw.get("headers", {}), "X-Request-Id": f"t31a-{entry.slug}"}
+    r = client.request(method, path, **kw)
     body = r.json()
     assert r.status_code == entry.status == body["status"]
     assert r.headers["content-type"] == "application/problem+json"
@@ -118,6 +137,8 @@ def test_every_catalog_entry_is_a_problem(entry, client, monkeypatch):
         assert r.headers["www-authenticate"] == 'Bearer realm="registerwatch"'
     if entry in (Catalog.DATABASE_UNAVAILABLE, Catalog.QUERY_TIMEOUT):
         assert r.headers["retry-after"] == "5"
+    if entry is Catalog.INGEST_IN_PROGRESS:
+        assert r.headers["retry-after"] == "60" and body["active_run"] == f"{RUNS}/{RUN_ID}"
     if entry.status == 400:
         assert body["errors"] and {"field", "location", "message"} <= set(body["errors"][0])
 
