@@ -448,24 +448,24 @@ keyset-paged on `id`.
 - T4.5.b **[pg]** `limit=1` walks all three in three pages, `has_more` false on the last.
 
 Checklist
-- [ ] T4.1.a DDL test passes
-- [ ] T4.1.b migrations idempotent, views expose id
-- [ ] T4.1.c keyset page uses an index scan
-- [ ] T4.2.a full walk: no duplicates, no gaps
-- [ ] T4.2.b walk across an ingest stays consistent
-- [ ] T4.2.c bad or mismatched cursor refused
-- [ ] T4.2.d old filter style refused with hint
-- [ ] T4.2.e Link header matches has_more
-- [ ] T4.2.f getRow returns one row by id
-- [ ] T4.3.a change feed matches engine history
-- [ ] T4.3.b large feed pages without truncation
-- [ ] T4.3.c jurisdiction feed ordered across registers
-- [ ] T4.3.d naive since refused on the change feed
-- [ ] T4.4.a search query count bounded
-- [ ] T4.4.b search rows_url consistent
-- [ ] T4.5.a snapshot history newest first with reasons
-- [ ] T4.5.b snapshot history pages
-- [ ] GATE P4
+- [x] ~~T4.1.a DDL test passes~~
+- [x] ~~T4.1.b migrations idempotent, views expose id~~
+- [x] ~~T4.1.c keyset page uses an index scan~~
+- [x] ~~T4.2.a full walk: no duplicates, no gaps~~
+- [x] ~~T4.2.b walk across an ingest stays consistent~~
+- [x] ~~T4.2.c bad or mismatched cursor refused~~
+- [x] ~~T4.2.d old filter style refused with hint~~
+- [x] ~~T4.2.e Link header matches has_more~~
+- [x] ~~T4.2.f getRow returns one row by id~~
+- [x] ~~T4.3.a change feed matches engine history~~
+- [x] ~~T4.3.b large feed pages without truncation~~
+- [x] ~~T4.3.c jurisdiction feed ordered across registers~~
+- [x] ~~T4.3.d naive since refused on the change feed~~
+- [x] ~~T4.4.a search query count bounded~~
+- [x] ~~T4.4.b search rows_url consistent~~
+- [x] ~~T4.5.a snapshot history newest first with reasons~~
+- [x] ~~T4.5.b snapshot history pages~~
+- [x] ~~GATE P4~~
 
 ---
 
@@ -839,7 +839,7 @@ Strike a phase here only after its `GATE` line is struck.
 - [x] ~~Phase 1. Contract baseline and tooling~~
 - [x] ~~Phase 2. Versioned routing, operation ids, typed responses~~
 - [x] ~~Phase 3. Errors (RFC 9457) and input validation~~
-- [ ] Phase 4. Stable pagination and a complete change feed
+- [x] ~~Phase 4. Stable pagination and a complete change feed~~
 - [ ] Phase 5. Ingest runs as a persisted resource
 - [ ] Phase 6. Security schemes and authorization
 - [ ] Phase 7. Caching, rate limiting, query cost
