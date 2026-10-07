@@ -30,15 +30,34 @@ def _examples(*examples: dict[str, Any]) -> ConfigDict:
 REGISTER: Any = Field(alias="register", description="Register slug, also its Postgres schema")
 
 
-# --- errors (until Problem Details replace them: plan.md Phase 3) -----------------
+# --- errors (RFC 9457; the catalog is http/problems.py) -----------------------------
 
-class HTTPError(BaseModel):
-    model_config = _examples({"detail": "unknown register 'xx_nope'; known: au_acma, be_gc, ..."})
-    detail: str
+class FieldError(BaseModel):
+    model_config = _examples({"field": "limit", "location": "query",
+                              "message": "Input should be less than or equal to 1000"})
+    field: str
+    location: str = Field(description="`query`, `path` or `header`")
+    message: str
 
 
-NOT_FOUND: dict[int | str, dict[str, Any]] = {404: {"model": HTTPError, "description": "Unknown identifier"}}
-BAD_REQUEST: dict[int | str, dict[str, Any]] = {400: {"model": HTTPError, "description": "Invalid parameter"}}
+class Problem(BaseModel):
+    """RFC 9457 Problem Details. Extension members may be added per type."""
+
+    model_config = ConfigDict(extra="allow", json_schema_extra={"examples": [{
+        "type": "https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#invalid-parameter",
+        "title": "Invalid parameter", "status": 400, "detail": "limit: Input should be less than or equal to 1000",
+        "instance": "/v1/registers/gb_ukgc/tables/licences/rows",
+        "request_id": "0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11",
+        "errors": [{"field": "limit", "location": "query", "message": "Input should be less than or equal to 1000"}],
+    }]})
+    type: str = Field(json_schema_extra={"format": "uri"},
+                      description="Stable identifier of the problem type; its docs say what to do")
+    title: str
+    status: int
+    detail: str = Field(description="What went wrong with this request, for a human")
+    instance: str = Field(json_schema_extra={"format": "uri-reference"}, description="The request path")
+    request_id: str = Field(description="Also in the `X-Request-Id` response header and the server's logs")
+    errors: list[FieldError] | None = Field(default=None, description="Each invalid parameter, for 400s")
 
 
 # --- pagination ----------------------------------------------------------------

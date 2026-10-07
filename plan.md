@@ -136,12 +136,12 @@ All under `/v1`. Health probes stay unversioned.
 - **Collections:** `{"data": [...], "pagination": {"next_cursor": "...|null", "has_more": bool, "limit": n}}`, plus an RFC 8288 `Link: <...>; rel="next"` header. `total` only with `?include_total=true` (it costs a `count(*)`).
 - **Pagination:** opaque cursor = base64url of `{"k": <last id>, "s": <snapshot id the page was read at>, "f": <hash of filters>}`. Keyset on the row's `id`. A cursor from a different filter set is a 400. `limit` default 100, `1 ≤ limit ≤ 1000`.
 - **Change feed:** flat list of `{"change": "added"|"removed", "at", "snapshot_id", "register", "table", "row"}`, ordered by `(snapshot_id, id)`, cursor-paged. Never truncated without `has_more: true`.
-- **Errors:** RFC 9457 `application/problem+json` with `type`, `title`, `status`, `detail`, `instance` (request id), and `errors[]` for field-level problems. Catalog in 2.5.
+- **Errors:** RFC 9457 `application/problem+json` with `type`, `title`, `status`, `detail`, `instance` (the request path), a `request_id` extension member, and `errors[]` for field-level problems. Catalog in 2.5.
 - **Auth:** `securitySchemes.ReadToken` and `securitySchemes.IngestToken`, both HTTP bearer. 401 + `WWW-Authenticate: Bearer realm="registerwatch"` when missing or wrong; 403 when a valid read token calls an ingest route. Ingest token also reads (kept).
 - **Caching:** `ETag` = hash of the newest complete snapshot id of every register the response depends on; `Cache-Control: public, max-age=300` when reads are open, `private` when `READ_TOKEN` is set; `If-None-Match` answers 304.
 - **Rate limiting:** per token, or per client IP when open. Read: 600 req/min; `/v1/search` and `/v1/domains`: 60 req/min; ingest: 10 req/min. Headers `RateLimit-Policy` and `RateLimit` (IETF httpapi draft), 429 + `Retry-After`.
 - **Time:** every timestamp RFC 3339 with offset, UTC. A naive `since` is a 400.
-- **Request id:** accept `X-Request-Id` (or generate a UUIDv7), echo it, log it, and put it in `instance` of problems.
+- **Request id:** accept `X-Request-Id` (or generate a UUIDv7), echo it, log it, and put it in `request_id` of problems.
 
 ### 2.4 Versioning and deprecation policy
 
@@ -152,7 +152,11 @@ All under `/v1`. Health probes stay unversioned.
 
 ### 2.5 Error catalog
 
-Base: `https://registerwatch.dev/problems/` (served as a static page per type from `/v1/problems/{slug}` so the URIs resolve).
+Base: `https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#<slug>`: one section per type in
+`docs/problems.md`, so each URI resolves to what the type means and what to do about it.
+(First written as `https://registerwatch.dev/problems/`, served from `/v1/problems/{slug}`. Changed in
+Phase 3: no one controls that domain, and a page in the public repository resolves without a route
+the API has to serve, secure and rate-limit.)
 
 | Status | `type` slug | When |
 |---|---|---|
@@ -161,16 +165,21 @@ Base: `https://registerwatch.dev/problems/` (served as a static page per type fr
 | 400 | `invalid-cursor` | cursor undecodable, or from a different filter set |
 | 401 | `unauthenticated` | missing or wrong bearer token |
 | 403 | `forbidden` | read token on an ingest route |
+| 404 | `not-found` | no operation at this path |
 | 404 | `jurisdiction-not-found`, `register-not-found`, `table-not-found`, `row-not-found`, `ingest-run-not-found` | unknown identifiers; `detail` lists valid ones where short |
+| 405 | `method-not-allowed` | the path exists, the method does not; `Allow` lists the ones it takes |
 | 409 | `ingest-in-progress` | a run is active; `Retry-After` and the active run's URL in `active_run` |
-| 409 | `ambiguous-table` | (legacy routes only) table name in several registers |
 | 415 | `unsupported-media-type` | POST body not `application/json` |
 | 422 | `idempotency-key-reused` | same key, different body |
 | 429 | `rate-limited` | over the limit; `Retry-After` |
 | 503 | `ingest-disabled` | `INGEST_TOKEN` not configured |
 | 503 | `database-unavailable` | pool timeout or connection failure; `Retry-After: 5` |
 | 504 | `query-timeout` | statement exceeded `statement_timeout` |
-| 500 | `internal` | anything else; no stack trace, only `instance` |
+| 500 | `internal` | anything else; no stack trace, only `request_id` |
+
+Phase 3 added `not-found` and `method-not-allowed` (v1 answers every error as a problem, so these
+needed types too) and dropped `ambiguous-table`: legacy routes keep FastAPI's `{"detail": ...}`
+bodies until they are removed, and no v1 route can be ambiguous.
 
 ---
 
@@ -318,25 +327,38 @@ Depends on: P2. Fixes F2 (validation), F7, F17.
 **P3.1 Problem Details everywhere.**
 Exception handlers for `HTTPException`, `RequestValidationError`, `psycopg_pool.PoolTimeout`,
 `psycopg.errors.QueryCanceled`, and `Exception`, all producing `application/problem+json`
-with the 2.5 catalog. `RequestValidationError` maps to 400 `invalid-parameter` with
+with the 2.5 catalog. As built: `PoolTimeout` is caught as its base, `psycopg.OperationalError`
+(connection failures too); `Exception` is caught by a middleware inside the request-id one,
+because Starlette's server-error handler sits outside every user middleware and its 500 would
+carry no `X-Request-Id`. Legacy routes keep their bodies; the handlers reformat only `/v1`. `RequestValidationError` maps to 400 `invalid-parameter` with
 `errors[]` (`{"field": "limit", "message": "must be ≤ 1000"}`). The catalog lives in one
 module (`http/problems.py`) as an enum, and the spec's `components.responses` are
 generated from it.
-- T3.1.a `tests/test_errors.py` parametrised over every catalog entry triggers it and asserts status, `Content-Type: application/problem+json`, `type` equals the catalog URI, `instance` equals the echoed `X-Request-Id`.
+- T3.1.a `tests/test_errors.py` parametrised over every catalog entry triggers it and asserts status, `Content-Type: application/problem+json`, `type` equals the catalog URI, `instance` equals the request path and `request_id` the echoed `X-Request-Id`. Entries whose feature lands later (`row-not-found` P4; `ingest-*`, `unsupported-media-type`, `idempotency-key-reused` P5; `forbidden` P6; `rate-limited` P7) are raised through a real v1 route by a patch until that phase adds the real trigger.
 - T3.1.b A forced unhandled exception returns 500 `internal` with no traceback text in the body (assert `"Traceback"` and `".py"` not in body).
 - T3.1.c Every v1 operation documents 400 (if it has params), 401 (if secured), 404 (if it has path ids), 429, 500, 503 in the spec (`test_contract.py::test_error_responses_documented`).
-- T3.1.d Redocly `operation-4xx-response` warnings: 0.
+- T3.1.d Redocly `operation-4xx-response` warnings: 0. As built: the three legacy routes without a 4xx (`/health`, `/registers`, `/status`) now document the 400 the NUL guard (below) gives on every path, which is true, so nothing is suppressed.
 
 **P3.2 Bounded, validated parameters.**
 `limit: Annotated[int, Query(ge=1, le=1000)]` everywhere (search per-table `le=100`),
 `offset` removed from v1, `since`/`until` as `AwareDatetime`, `until > since`,
 `q` `min_length=2, max_length=200`, `domain` validated with `extract.host()` and
 `max_length=253`, `jurisdiction` as a repeated param validated against known codes.
+As built, also: a query parameter an operation does not declare is a 400 on every v1
+operation (a typo like `?jurisdictions=gb` must not silently return everything); an unknown
+code in `jurisdiction` is a 400 `invalid-parameter`, not a 404, since it filters rather than
+names the resource; a NUL byte anywhere in the path or query is a 400 on every path, legacy
+included (F18; a middleware, so it never reaches Postgres). The legacy 500s T1.3.b pinned were
+negative and out-of-range `limit`/`offset` and NUL bytes; legacy `offset ≥ 0` and changes
+`limit ≥ 0`, both at most Postgres' bigint, refuse only values that used to be 500s.
+`breaking.sh` against the Phase 2 commit reports these four bounds and v1 `domain`
+`maxLength: 253` as narrowings; v1 is unreleased (main has no spec yet), so the gate against
+`origin/main` passes.
 - T3.2.a `GET /v1/registers/gb_ukgc/tables/licences/rows?limit=0`, `limit=1001`, `limit=-1` → 400 `invalid-parameter`, `errors[0].field == "limit"`.
 - T3.2.b Every v1 datetime parameter refuses a naive value with 400. No v1 operation takes one until the change feed lands in P4.3, so the concrete check `GET /v1/registers/gb_ukgc/changes?since=2026-10-01T00:00:00` → 400 (and with `Z` → 200) runs there as T4.3.d. P3 adds the shared `AwareDatetime` parameter type and its unit test.
 - T3.2.c `GET /v1/domains/not_a_host!!` → 400; a 300-char domain → 400.
 - T3.2.d `GET /v1/search?q=a` → 400; `q` of 201 chars → 400.
-- T3.2.e schemathesis `not_a_server_error` passes on every v1 operation (the T1.3.b baseline failures are gone and their entries are removed from `tests/contract_baseline.json`).
+- T3.2.e schemathesis `not_a_server_error` passes on every v1 operation (the T1.3.b baseline failures are gone and their entries are removed from `tests/contract_baseline.json`). The one `not_a_server_error` left in the fake-mode baseline is legacy `/status`'s deliberate 503 (F13, Phase 8).
 - T3.2.f **[pg]** `GET /v1/search?q=a%00b` and `filter[status]=a%00b` on rows → 400 `invalid-parameter`, not 500 (F18).
 
 **P3.3 Request id.**
@@ -491,7 +513,7 @@ Depends on: P2. Fixes F5.
 **P6.1 Declare security.**
 `HTTPBearer` dependencies named `ReadToken` and `IngestToken`; global `security` for
 read routes, `IngestToken` on ingest routes, `security: []` on `/livez`, `/readyz`,
-`/v1/status`, `/v1/problems/*`. The `authorization` header parameter disappears from the spec.
+`/v1/status`. The `authorization` header parameter disappears from the spec.
 - T6.1.a Redocly `security-defined` errors: 0.
 - T6.1.b `test_contract.py::test_no_authorization_header_param` passes.
 
@@ -761,8 +783,8 @@ Depends on: P11 verified in production.
 
 **P12.2 Documentation.**
 README "API" section rewritten for v1, with the migration table from 2.2 and the error
-catalog; `/v1/problems/{slug}` pages served.
-- T12.2.a Every `type` URI in the catalog returns 200 `text/html` from the running app.
+catalog; `docs/problems.md` merged to `main`, so the type URIs resolve (2.5).
+- T12.2.a Every `type` URI in the catalog returns 200 from github.com and its page has the anchor for the slug.
 - T12.2.b `uv run pytest tests/test_docs.py`: every path in the README's API tables exists in the spec (no stale docs).
 
 **P12.3 Removal (release 0.4.0, after Sunset and zero legacy hits for 14 days).**

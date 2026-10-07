@@ -144,10 +144,13 @@ def test_rows_refuse_unknown_parameters_and_columns(rows):
     base = "/v1/registers/gb_ukgc/tables/licences/rows"
     r = rows.get(base + "?status=Active")
     assert r.status_code == 400 and "filter[status]" in r.json()["detail"]
-    assert rows.get(base + "?filter[nope]=1").status_code == 400
+    assert r.json()["errors"][0]["field"] == "status"
+    r = rows.get(base + "?filter[nope]=1")
+    assert r.status_code == 400 and r.json()["type"].endswith("#unknown-filter-column")
+    assert "status" in r.json()["detail"]  # lists the columns there are
     assert rows.get(base + "?filter[status]=A&filter[status]=B").status_code == 400
-    assert rows.get(base + "?limit=0").status_code == 422 and rows.get(base + "?limit=1001").status_code == 422
-    assert rows.get("/v1/registers/gb_ukgc/tables/nope/rows").status_code == 404
+    assert rows.get(base + "?limit=0").status_code == 400 and rows.get(base + "?limit=1001").status_code == 400
+    assert rows.get("/v1/registers/gb_ukgc/tables/nope/rows").json()["type"].endswith("#table-not-found")
 
 
 def test_search_returns_one_hit_per_table_with_a_link_to_all_of_it(client, monkeypatch):
@@ -163,8 +166,10 @@ def test_search_returns_one_hit_per_table_with_a_link_to_all_of_it(client, monke
     assert hit["register"] == "ch_esbk" and hit["total"] == 3
     assert hit["rows"][0]["values"] == {"domain": "0101b00merang-bet.com", "listed_on": None}
     assert hit["rows_url"] == "/v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang"
-    assert client.get("/v1/search?q=b").status_code == 422
-    assert client.get("/v1/search?q=bet&jurisdiction=zz").status_code == 404
+    assert client.get("/v1/search?q=b").status_code == 400
+    # An unknown code in a filter is a bad parameter, not a missing resource.
+    r = client.get("/v1/search?q=bet&jurisdiction=zz")
+    assert r.status_code == 400 and r.json()["errors"][0]["field"] == "jurisdiction"
 
 
 def test_a_domain_reports_where_it_is_licensed_and_blocked(client, monkeypatch):

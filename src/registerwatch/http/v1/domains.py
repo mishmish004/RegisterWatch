@@ -2,31 +2,39 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi import APIRouter, Depends, Path
 
 from registerwatch import query
-from registerwatch.http.deps import JURISDICTION, connection, registers_for, require_read, table_of
-from registerwatch.http.models import BAD_REQUEST, NOT_FOUND, DomainMatch, DomainStatus, Row
+from registerwatch.http.deps import (
+    JURISDICTION,
+    connection,
+    known_parameters_only,
+    registers_for,
+    require_read,
+    table_of,
+)
+from registerwatch.http.models import DomainMatch, DomainStatus, Row
+from registerwatch.http.problems import invalid, responses
+from registerwatch.registers.extract import host
 
-router = APIRouter(dependencies=[Depends(require_read)])
+router = APIRouter(dependencies=[Depends(require_read), Depends(known_parameters_only)])
 
 
 @router.get("/domains/{domain}", operation_id="getDomainStatus", tags=["domains"],
             summary="Where a domain is licensed, and where it is blocked",
             description="A leading `www.` is ignored, and a listed subdomain counts as a match of its "
                         "parent (`nj.bet365.com` for `bet365.com`), marked `subdomain`.",
-            responses={**BAD_REQUEST, **NOT_FOUND})
+            responses=responses(400, 401, 429, 500, 503))
 def get_domain_status(
-    domain: str = Path(description="A hostname; a URL is accepted and reduced to its host",
+    domain: str = Path(max_length=253, description="A hostname; a URL is accepted and reduced to its host",
                        examples=["bet365.com"]),
     jurisdiction: list[str] | None = JURISDICTION,
 ) -> DomainStatus:
+    if not host(domain):
+        raise invalid("domain", f"{domain!r} is not a hostname", location="path")
     regs = registers_for(jurisdiction)
-    try:
-        with connection() as conn:
-            res = query.check_domain(conn, domain, regs)
-    except ValueError as exc:  # not a hostname
-        raise HTTPException(400, str(exc)) from None
+    with connection() as conn:
+        res = query.check_domain(conn, domain, regs)
     return DomainStatus(domain=res["domain"], licensed_in=res["licensed_in"], blocked_in=res["blocked_in"],
                         matches=[DomainMatch(jurisdiction=m["jurisdiction"], register_=m["register"],
                                              regulator=m["regulator"], kind=m["kind"], table=m["table"],

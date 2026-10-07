@@ -7,14 +7,22 @@ from urllib.parse import urlencode
 from fastapi import APIRouter, Depends, Query
 
 from registerwatch import query
-from registerwatch.http.deps import JURISDICTION, connection, registers_for, require_read, table_of
-from registerwatch.http.models import NOT_FOUND, Pagination, Row, SearchHit, SearchHitPage
+from registerwatch.http.deps import (
+    JURISDICTION,
+    connection,
+    known_parameters_only,
+    registers_for,
+    require_read,
+    table_of,
+)
+from registerwatch.http.models import Pagination, Row, SearchHit, SearchHitPage
+from registerwatch.http.problems import responses
 
-router = APIRouter(dependencies=[Depends(require_read)])
+router = APIRouter(dependencies=[Depends(require_read), Depends(known_parameters_only)])
 
 
 @router.get("/search", operation_id="search", tags=["search"],
-            summary="Find text in every register's current rows", responses=NOT_FOUND)
+            summary="Find text in every register's current rows", responses=responses(400, 401, 429, 500, 503))
 def search(
     q: str = Query(..., min_length=2, max_length=200, description="Case-insensitive substring"),
     jurisdiction: list[str] | None = JURISDICTION,

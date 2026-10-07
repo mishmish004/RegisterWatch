@@ -37,7 +37,7 @@ from registerwatch import __version__, jurisdictions, query, registers
 from registerwatch.config import settings
 from registerwatch.db.engine import pool, tx
 from registerwatch.db.repos import snapshots as repo
-from registerwatch.http import openapi, v1
+from registerwatch.http import guards, openapi, problems, request_id, v1
 from registerwatch.ingest import engine
 from registerwatch.storage.blobs import make_store
 
@@ -51,9 +51,10 @@ _last: dict[str, Any] = {}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    request_id.install_log_field()
     logging.basicConfig(
         level=settings().log_level,  # also fails fast on a bad .env
-        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+        format="%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s",
     )
     yield
     if pool.cache_info().currsize:
@@ -73,6 +74,17 @@ app = FastAPI(
 )
 app.include_router(v1.router)
 openapi.install(app)
+problems.install(app)
+# Each add wraps the ones before it, so the request id is outermost: it is set
+# before anything can answer, and every answer, a 500 included, carries it.
+app.add_middleware(guards.NulGuardMiddleware)
+app.add_middleware(problems.UnhandledErrorMiddleware)
+app.add_middleware(request_id.RequestIdMiddleware)
+
+# Postgres' bigint: the most a legacy LIMIT or OFFSET can be without a 500.
+_PG_BIGINT = 2**63 - 1
+# Any route answers this, even one without parameters (http/guards.py).
+_NUL = {400: {"description": "A parameter or the path carried a NUL byte"}}
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:
@@ -99,19 +111,19 @@ def _registers_of(code: str):
         raise HTTPException(404, exc.args[0]) from None
 
 
-@app.get("/health", tags=["health"])
+@app.get("/health", tags=["health"], responses=_NUL)
 def health() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/registers", tags=["health"])
+@app.get("/registers", tags=["health"], responses=_NUL)
 def list_registers() -> list[dict[str, Any]]:
     return [{"slug": r.slug, "country": r.country, "regulator": r.regulator, "name": r.name,
              "kind": r.kind, "homepage": r.homepage, "schema": r.slug,
              "tables": {t.name: t.column_names for t in r.tables}} for r in registers.all_registers()]
 
 
-@app.get("/status", tags=["health"])
+@app.get("/status", tags=["health"], responses=_NUL)
 def status(response: Response) -> dict[str, Any]:
     try:
         with tx() as conn:
@@ -212,7 +224,7 @@ def get_jurisdiction(code: str) -> dict[str, Any]:
 
 @app.get("/jurisdictions/{code}/changes", dependencies=[Depends(require_read)], tags=["read"])
 def get_changes(code: str, since: datetime = Query(..., description="ISO date or timestamp"),
-                limit: int = 200) -> dict[str, Any]:
+                limit: int = Query(200, ge=0, le=_PG_BIGINT)) -> dict[str, Any]:
     regs = _registers_of(code)
     since = since if since.tzinfo else since.replace(tzinfo=timezone.utc)
     with tx() as conn:
@@ -222,7 +234,7 @@ def get_changes(code: str, since: datetime = Query(..., description="ISO date or
 
 @app.get("/jurisdictions/{code}/{slug}/{table}", dependencies=[Depends(require_read)], tags=["read"])
 def get_rows(code: str, slug: str, table: str, request: Request, q: str | None = None,
-             limit: int = 100, offset: int = 0) -> dict[str, Any]:
+             limit: int = 100, offset: int = Query(0, ge=0, le=_PG_BIGINT)) -> dict[str, Any]:
     """Current rows. Any other query parameter filters a column by exact value,
     e.g. `/jurisdictions/gb/gb_ukgc/licences?status=Active&type=Remote`."""
     regs = _registers_of(code)

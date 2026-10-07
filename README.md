@@ -145,6 +145,12 @@ pass `next_cursor` back as `cursor` for the next page.
 | `GET /v1/search?q=betway&jurisdiction=gb&jurisdiction=de` | one entry per table with a match, with a `rows_url` for all of them |
 | `GET /v1/domains/{domain}` | `licensed_in`, `blocked_in` and each matching row |
 
+Errors from `/v1` are RFC 9457 problems (`application/problem+json`); each `type`
+links to its section of [docs/problems.md](docs/problems.md). A parameter an
+operation does not take is a 400, not ignored. Every response, legacy included,
+carries `X-Request-Id` (yours if you send a short one, else a UUIDv7), and the
+server's log line for the request has the same id.
+
 **Reading** — open, or `Authorization: Bearer $READ_TOKEN` when set
 
 | | |

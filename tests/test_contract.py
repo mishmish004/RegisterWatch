@@ -124,6 +124,48 @@ def test_schema_examples_validate_against_their_schemas():
             model.model_validate(example)
 
 
+# --- error responses (plan.md Phase 3) ------------------------------------------------
+
+# Path parameters that name a resource, so an unknown value is a 404. `domain` is a
+# lookup key: any hostname has a status, possibly empty.
+RESOURCE_IDS = {"code", "slug", "table"}
+
+
+def test_error_responses_documented():
+    """T3.1.c: what each v1 operation may answer besides success, by reference to
+    the catalog's components.responses, and nothing FastAPI added on its own."""
+    spec = api.app.openapi()
+    wrong = {}
+    for m, p, op in _operations("/v1/"):
+        path_ids = {q["name"] for q in op.get("parameters", []) if q["in"] == "path"} & RESOURCE_IDS
+        # 400 everywhere: an operation without parameters still refuses undeclared ones.
+        want = {"400", "401", "429", "500", "503"} | ({"404"} if path_ids else set())
+        errors = {s for s in op["responses"] if not s.startswith("2")}
+        if errors != want:
+            wrong[f"{m} {p}"] = sorted(errors ^ want)
+        for s in errors:
+            ref = op["responses"][s].get("$ref", "")
+            assert ref.rsplit("/", 1)[-1] in spec["components"]["responses"], f"{m} {p} {s}: {ref!r}"
+            assert ref.startswith("#/components/responses/")
+    assert not wrong, f"missing or extra error responses: {wrong}"
+
+
+def test_error_response_examples_are_problems():
+    from registerwatch.http import models, problems
+
+    for name, resp in api.app.openapi()["components"]["responses"].items():
+        media = resp["content"][problems.MEDIA_TYPE]
+        assert media["schema"] == {"$ref": "#/components/schemas/Problem"}, name
+        models.Problem.model_validate(media["example"])
+        assert media["example"]["type"].startswith(problems.DOCS + "#")
+
+
+def test_no_v1_operation_is_pinned_in_the_baseline():
+    """T3.2.e: generated traffic finds nothing wrong with v1, in either mode."""
+    pinned = {op for mode in json.loads(BASELINE.read_text()).values() for op in mode}
+    assert not [op for op in pinned if " /v1/" in op]
+
+
 # --- the app, wired for generated traffic ------------------------------------------
 
 class _Result:

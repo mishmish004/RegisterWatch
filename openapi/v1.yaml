@@ -35,12 +35,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JurisdictionPage'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/jurisdictions/{code}:
     get:
       tags:
@@ -73,18 +77,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/JurisdictionDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '404':
-          description: Unknown identifier
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/registers:
     get:
       tags:
@@ -107,12 +111,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegisterPage'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/registers/{slug}:
     get:
       tags:
@@ -145,18 +153,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RegisterDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '404':
-          description: Unknown identifier
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/registers/{slug}/tables/{table}:
     get:
       tags:
@@ -199,18 +207,18 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TableSchema'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '404':
-          description: Unknown identifier
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/registers/{slug}/tables/{table}/rows:
     get:
       tags:
@@ -244,7 +252,7 @@ paths:
         schema:
           anyOf:
           - type: string
-            minLength: 1
+            minLength: 2
             maxLength: 200
           - type: 'null'
           description: Case-insensitive substring in any text column
@@ -305,23 +313,17 @@ paths:
               schema:
                 $ref: '#/components/schemas/RowPage'
         '400':
-          description: Invalid parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
         '404':
-          description: Unknown identifier
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/search:
     get:
       tags:
@@ -377,18 +379,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SearchHitPage'
-        '404':
-          description: Unknown identifier
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/domains/{domain}:
     get:
       tags:
@@ -403,6 +403,7 @@ paths:
         required: true
         schema:
           type: string
+          maxLength: 253
           description: A hostname; a URL is accepted and reduced to its host
           examples:
           - bet365.com
@@ -436,23 +437,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/DomainStatus'
         '400':
-          description: Invalid parameter
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
-        '404':
-          description: Unknown identifier
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPError'
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /health:
     get:
       tags:
@@ -469,6 +462,8 @@ paths:
                   type: boolean
                 type: object
                 title: Response Health Health Get
+        '400':
+          description: A parameter or the path carried a NUL byte
   /registers:
     get:
       tags:
@@ -486,6 +481,8 @@ paths:
                   type: object
                 type: array
                 title: Response List Registers Registers Get
+        '400':
+          description: A parameter or the path carried a NUL byte
   /status:
     get:
       tags:
@@ -501,6 +498,8 @@ paths:
                 additionalProperties: true
                 type: object
                 title: Response Status Status Get
+        '400':
+          description: A parameter or the path carried a NUL byte
   /ingest/{slug}:
     post:
       tags:
@@ -740,6 +739,8 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 9223372036854775807
+          minimum: 0
           default: 200
           title: Limit
       - name: authorization
@@ -813,6 +814,8 @@ paths:
         required: false
         schema:
           type: integer
+          maximum: 9223372036854775807
+          minimum: 0
           default: 0
           title: Offset
       - name: authorization
@@ -1100,17 +1103,6 @@ components:
         last_good_at: '2026-10-07T06:00:41Z'
         last_reason: null
         failed_7d: 0
-    HTTPError:
-      properties:
-        detail:
-          type: string
-          title: Detail
-      type: object
-      required:
-      - detail
-      title: HTTPError
-      examples:
-      - detail: 'unknown register ''xx_nope''; known: au_acma, be_gc, ...'
     HTTPValidationError:
       properties:
         detail:
@@ -1677,3 +1669,173 @@ components:
       - msg
       - type
       title: ValidationError
+    FieldError:
+      examples:
+      - field: limit
+        location: query
+        message: Input should be less than or equal to 1000
+      properties:
+        field:
+          title: Field
+          type: string
+        location:
+          description: '`query`, `path` or `header`'
+          title: Location
+          type: string
+        message:
+          title: Message
+          type: string
+      required:
+      - field
+      - location
+      - message
+      title: FieldError
+      type: object
+    Problem:
+      additionalProperties: true
+      description: RFC 9457 Problem Details. Extension members may be added per type.
+      examples:
+      - detail: 'limit: Input should be less than or equal to 1000'
+        errors:
+        - field: limit
+          location: query
+          message: Input should be less than or equal to 1000
+        instance: /v1/registers/gb_ukgc/tables/licences/rows
+        request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+        status: 400
+        title: Invalid parameter
+        type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#invalid-parameter
+      properties:
+        type:
+          description: Stable identifier of the problem type; its docs say what to do
+          format: uri
+          title: Type
+          type: string
+        title:
+          title: Title
+          type: string
+        status:
+          title: Status
+          type: integer
+        detail:
+          description: What went wrong with this request, for a human
+          title: Detail
+          type: string
+        instance:
+          description: The request path
+          format: uri-reference
+          title: Instance
+          type: string
+        request_id:
+          description: Also in the `X-Request-Id` response header and the server's logs
+          title: Request Id
+          type: string
+        errors:
+          anyOf:
+          - items:
+              $ref: '#/components/schemas/FieldError'
+            type: array
+          - type: 'null'
+          default: null
+          description: Each invalid parameter, for 400s
+          title: Errors
+      required:
+      - type
+      - title
+      - status
+      - detail
+      - instance
+      - request_id
+      title: Problem
+      type: object
+  responses:
+    BadRequest:
+      description: 'A parameter is invalid; `errors` names each one. Types: `invalid-parameter`, `unknown-filter-column`,
+        `invalid-cursor`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#invalid-parameter
+            title: Invalid parameter
+            status: 400
+            detail: 'limit: Input should be less than or equal to 1000'
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+            errors:
+            - field: limit
+              location: query
+              message: Input should be less than or equal to 1000
+    Unauthenticated:
+      description: 'A read token is configured and the request did not carry it. Types: `unauthenticated`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#unauthenticated
+            title: Authentication required
+            status: 401
+            detail: bad or missing bearer token
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+    NotFound:
+      description: 'An identifier in the path does not exist. Types: `jurisdiction-not-found`, `register-not-found`,
+        `table-not-found`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#jurisdiction-not-found
+            title: Unknown jurisdiction
+            status: 404
+            detail: 'unknown jurisdiction ''zz''; known: au, be, ca, ...'
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+    TooManyRequests:
+      description: 'Rate limit exceeded; wait `Retry-After` seconds. Types: `rate-limited`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#rate-limited
+            title: Too many requests
+            status: 429
+            detail: 60 requests per minute for /v1/search; retry in 12 s
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers: &id007
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+    InternalError:
+      description: 'An unexpected error; quote `request_id` when reporting it. Types: `internal`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#internal
+            title: Internal error
+            status: 500
+            detail: something went wrong on our side; quote request_id if you report it
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+    ServiceUnavailable:
+      description: 'The database cannot be reached; retry after `Retry-After` seconds. Types: `database-unavailable`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#database-unavailable
+            title: Database unavailable
+            status: 503
+            detail: the database cannot be reached right now; retry shortly
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers: *id007
