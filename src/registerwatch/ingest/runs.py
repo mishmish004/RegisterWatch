@@ -165,11 +165,21 @@ def execute(lease: Lease, run_id: uuid.UUID, targets: list[Register], *, force: 
 
 def stop_on_sigterm() -> None:
     """Set STOP on SIGTERM, then hand the signal to whoever handled it before
-    (uvicorn's graceful shutdown). Only possible from the main thread."""
+    (uvicorn's graceful shutdown). Only possible from the main thread.
+
+    Only the first SIGTERM sets STOP. A second can arrive while the first's
+    handler is inside `STOP.set()`, holding the Event's lock (a process-group
+    kill under `uv run` delivers the group's copy and uv's forwarded one
+    together). Its handler runs on that same thread, so setting STOP again would
+    wait for the lock forever, and the process would never exit."""
     previous = signal.getsignal(signal.SIGTERM)
+    stopping = False
 
     def handler(signum: int, frame: Any) -> None:
-        STOP.set()
+        nonlocal stopping
+        if not stopping:
+            stopping = True
+            STOP.set()
         if callable(previous):
             previous(signum, frame)
         elif previous in (signal.SIG_DFL, None):  # nobody else: terminate as the default would

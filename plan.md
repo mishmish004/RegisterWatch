@@ -519,6 +519,13 @@ on to uvicorn; uvicorn's graceful shutdown waits for the background run. The bou
 (`--timeout-graceful-shutdown`, `SHUTDOWN_GRACE_S`) is set where the server is started, which
 P9.3 owns. A run still going when the bound kills the process is left `running` and the next
 holder's sweep fails it (`worker lost`), as in T5.2.b.
+Corrected in Phase 8: the handler set `STOP` on every SIGTERM. Phase 8's wire check left a
+server under `uv run` that never exited: `pkill` signalled both uv and the server, uv forwarded
+its copy, and the second SIGTERM's handler ran inside the first's `STOP.set()`, on the same
+thread, and waited for the lock that call held (py-spy: four handlers nested, three in `Event.set`'s `__enter__`). Only the first
+SIGTERM sets `STOP` now; every one is still handed on. The race is too narrow to reproduce on
+demand (0 hangs in 20 group kills), so `test_a_second_sigterm_inside_the_first_does_not_deadlock`
+delivers the second signal exactly inside `set()`; T9.3.b still covers SIGTERM end to end.
 - T5.4.a Unit: the engine loop checks a stop event between registers (fake engine with 5 registers, stop after 2 → run `partial`, results for 2, `not_started` lists 3).
 - T5.4.b Covered at OS level in T9.3.b.
 

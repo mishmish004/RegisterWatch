@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -389,3 +390,34 @@ def test_a_stop_between_registers_leaves_the_run_partial(cfg, monkeypatch):
     memory.__init__()
     assert runs.execute(_Lease(), uuid.uuid4(), targets, ingest=lambda r, s, **kw: _done(r.slug)) == "succeeded"
     assert memory.not_started == [] and len(memory.results) == 5
+
+
+def test_a_second_sigterm_inside_the_first_does_not_deadlock(monkeypatch):
+    """A signal handler runs on the main thread, between any two bytecodes, so a
+    second SIGTERM can run its handler inside the first's `STOP.set()`, which
+    holds the Event's lock. Setting STOP again there waits for that lock
+    forever: the server never exits (seen in the Phase 8 wire check, under
+    `uv run`). Here the second SIGTERM arrives exactly then."""
+
+    class Stop(threading.Event):
+        """Takes its lock as `Event.set` does, but fails instead of waiting forever."""
+
+        def set(self):
+            assert self._cond.acquire(timeout=1), "STOP.set() re-entered while it holds its lock"
+            try:
+                if not handed_on:
+                    signal.raise_signal(signal.SIGTERM)  # the second one, right now
+                self._flag = True
+                self._cond.notify_all()
+            finally:
+                self._cond.release()
+
+    handed_on: list[int] = []
+    monkeypatch.setattr(runs, "STOP", Stop())
+    before = signal.signal(signal.SIGTERM, lambda signum, frame: handed_on.append(signum))  # uvicorn's place
+    try:
+        runs.stop_on_sigterm()
+        signal.raise_signal(signal.SIGTERM)
+    finally:
+        signal.signal(signal.SIGTERM, before)
+    assert runs.STOP.is_set() and handed_on == [signal.SIGTERM, signal.SIGTERM]
