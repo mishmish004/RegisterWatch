@@ -29,8 +29,11 @@ from registerwatch.ingest.engine import IngestResult
 from registerwatch.registers import REGISTRY
 from tests.test_postgres import DSN, ROOT, db, loaded  # noqa: F401 — fixtures
 
-INGEST = {"Authorization": "Bearer ingest-token"}
-READ = {"Authorization": "Bearer read-token"}
+# Long enough for settings() (P6.3): the replica below reads them from its environment.
+INGEST_TOKEN = "ingest-token-0123456789abcdefghijklmnopqrstuvwxyz"
+READ_TOKEN = "read-token-0123456789abcdefghijklmnopqrstuvwxyz"
+INGEST = {"Authorization": f"Bearer {INGEST_TOKEN}"}
+READ = {"Authorization": f"Bearer {READ_TOKEN}"}
 pg = pytest.mark.skipif(not DSN, reason="REGISTERWATCH_TEST_DATABASE_URL not set")
 
 
@@ -40,7 +43,7 @@ def _done(slug: str) -> IngestResult:
 
 @pytest.fixture
 def cfg(monkeypatch):
-    cfg = SimpleNamespace(ingest_token="ingest-token", read_token="read-token", stale_after_h=26.0,
+    cfg = SimpleNamespace(ingest_token=INGEST_TOKEN, read_token=READ_TOKEN, stale_after_h=26.0,
                           log_level="WARNING", database_url=DSN)
     for module in (deps, api, runs):
         monkeypatch.setattr(module, "settings", lambda: cfg)
@@ -109,7 +112,7 @@ def _in_thread(fn):
 # database. Starting it runs the startup sweep; then it POSTs once and prints
 # the status and body. Its engine is fake too.
 _REPLICA = """
-import json, sys
+import json, os, sys
 from fastapi.testclient import TestClient
 from registerwatch import api
 from registerwatch.ingest import runs
@@ -117,13 +120,14 @@ from registerwatch.ingest.engine import IngestResult
 runs.make_store = lambda: object()
 runs.engine.ingest = lambda r, store, **kw: IngestResult(r.slug, None, True, None, 1, 1, record_count=10)
 with TestClient(api.app) as c:
-    r = c.post("/v1/ingest-runs", json=json.loads(sys.argv[1]), headers={"Authorization": "Bearer ingest-token"})
+    auth = {"Authorization": "Bearer " + os.environ["INGEST_TOKEN"]}
+    r = c.post("/v1/ingest-runs", json=json.loads(sys.argv[1]), headers=auth)
 print(json.dumps({"status": r.status_code, "body": r.json()}))
 """
 
 
 def _replica(body: dict) -> dict:
-    env = {**os.environ, "DATABASE_URL": DSN, "INGEST_TOKEN": "ingest-token", "READ_TOKEN": "read-token",
+    env = {**os.environ, "DATABASE_URL": DSN, "INGEST_TOKEN": INGEST_TOKEN, "READ_TOKEN": READ_TOKEN,
            "LOG_LEVEL": "WARNING"}
     out = subprocess.run([sys.executable, "-c", _REPLICA, json.dumps(body)], env=env, cwd=ROOT,
                          capture_output=True, text=True, timeout=120)
@@ -314,7 +318,7 @@ def test_a_read_token_is_forbidden_and_no_token_unauthenticated(fake_db):
         read = getattr(c, method)(path, headers=READ)
         assert read.status_code == 403 and read.json()["type"].endswith("#forbidden"), path
         assert "www-authenticate" not in read.headers
-        for headers in ({}, {"Authorization": "Bearer wrong"}, {"Authorization": "ingest-token"}):
+        for headers in ({}, {"Authorization": "Bearer wrong"}, {"Authorization": INGEST_TOKEN}):
             r = getattr(c, method)(path, headers=headers)
             assert r.status_code == 401 and r.headers["www-authenticate"].startswith("Bearer"), (path, headers)
 

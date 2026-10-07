@@ -546,6 +546,15 @@ Depends on: P2. Fixes F5.
 `HTTPBearer` dependencies named `ReadToken` and `IngestToken`; global `security` for
 read routes, `IngestToken` on ingest routes, `security: []` on `/livez`, `/readyz`,
 `/v1/status`. The `authorization` header parameter disappears from the spec.
+As built: FastAPI has no global `security`, so every operation carries its own: read routes
+`[ReadToken, IngestToken]` (either; the ingest token reads), ingest routes `[IngestToken]`.
+`/livez`, `/readyz` and `/v1/status` do not exist until Phase 8; today's open routes are the
+legacy `/health`, `/registers` and `/status`, which get `security: []`. Phase 8 adds its probes
+to the open set in `test_no_authorization_header_param`. Legacy routes declare the schemes too
+(the lint covers the whole spec), but their checks still compare the raw header and answer
+`{"detail": ...}`. Dropping the header parameter left legacy `/jurisdictions` and `/ingest/last`
+with no 4xx (their 422 came from it), so they now document the NUL 400 they already answer.
+The 401 response component documents `WWW-Authenticate`.
 - T6.1.a Redocly `security-defined` errors: 0.
 - T6.1.b `test_contract.py::test_no_authorization_header_param` passes.
 
@@ -556,9 +565,16 @@ read routes, `IngestToken` on ingest routes, `security: []` on `/livez`, `/ready
 - T6.2.d Token comparison stays constant-time: `test_auth_uses_compare_digest` patches `secrets.compare_digest` and asserts it was called for every candidate token.
 - T6.2.e Tokens never appear in logs: run the auth tests with `caplog` at DEBUG and assert neither token string occurs in any record.
 
+As built: tokens are compared as bytes. `compare_digest` raises `TypeError` on a non-ASCII str,
+so a Latin-1 `Authorization` header was a 500 on every authenticated route, legacy included; it
+is now a 401. A request with no bearer token (none, another scheme, `Bearer` alone) gets the
+bare challenge; `error="invalid_token"` is only for a token that was sent (RFC 6750 3.1).
+
 **P6.3 Minimum token strength.**
 Startup refuses an `INGEST_TOKEN` or `READ_TOKEN` shorter than 32 characters.
 - T6.3.a `tests/test_config.py`: a 10-char token raises at `settings()`; a 43-char `token_urlsafe(32)` loads.
+As built: `Settings` also sets `hide_input_in_errors`, so the refused value is not repeated in
+the startup error (pydantic prints `input_value=` by default, which would put a token in the logs).
 
 Checklist
 - [ ] T6.1.a security-defined errors gone

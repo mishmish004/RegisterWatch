@@ -223,7 +223,7 @@ def install(app: FastAPI) -> None:
 RESPONSES = {
     400: ("BadRequest", "A parameter is invalid; `errors` names each one",
           [Catalog.INVALID_PARAMETER, Catalog.UNKNOWN_FILTER_COLUMN, Catalog.INVALID_CURSOR]),
-    401: ("Unauthenticated", "A read token is configured and the request did not carry it", [Catalog.UNAUTHENTICATED]),
+    401: ("Unauthenticated", "The bearer token is missing, or is not one this route takes", [Catalog.UNAUTHENTICATED]),
     403: ("Forbidden", "The token is valid but cannot do this (a read token on an ingest operation)",
           [Catalog.FORBIDDEN]),
     404: ("NotFound", "An identifier in the path or body does not exist",
@@ -240,6 +240,9 @@ RESPONSES = {
           [Catalog.DATABASE_UNAVAILABLE, Catalog.INGEST_DISABLED]),
 }
 _RETRY = {"Retry-After": {"description": "Seconds to wait before retrying", "schema": {"type": "integer"}}}
+_CHALLENGE = {"WWW-Authenticate": {
+    "description": '`Bearer realm="registerwatch"`, with `error="invalid_token"` when a token was sent '
+                   "but is not valid (RFC 6750)", "schema": {"type": "string"}}}
 
 
 def responses(*statuses: int) -> dict[int | str, dict[str, Any]]:
@@ -261,13 +264,14 @@ def components() -> dict[str, Any]:
             "description": description + ". Types: " + ", ".join(f"`{q.slug}`" for q in problems),
             "content": {MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}, "example": example}},
             **({"headers": _RETRY} if status in (409, 429, 503) else {}),
+            **({"headers": _CHALLENGE} if status == 401 else {}),
         }
     return out
 
 
 _EXAMPLE_DETAIL = {
     Catalog.INVALID_PARAMETER: "limit: Input should be less than or equal to 1000",
-    Catalog.UNAUTHENTICATED: "bad or missing bearer token",
+    Catalog.UNAUTHENTICATED: "the bearer token is not valid here",
     Catalog.FORBIDDEN: "a read token cannot start or list ingest runs",
     Catalog.INGEST_IN_PROGRESS: "an ingest run is already going: /v1/ingest-runs/0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11",
     Catalog.UNSUPPORTED_MEDIA_TYPE: "send the body as application/json, not text/plain",

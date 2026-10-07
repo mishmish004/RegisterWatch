@@ -45,7 +45,8 @@ parameters you are paging through.
 ## unauthenticated
 
 **401.** The deployment requires a token and the request carried none, or the wrong one. Send
-`Authorization: Bearer <token>`. The response carries `WWW-Authenticate: Bearer realm="registerwatch"`.
+`Authorization: Bearer <token>`. The response carries `WWW-Authenticate: Bearer realm="registerwatch"`,
+with `error="invalid_token"` added when a token was sent but is not one this route takes.
 
 ## forbidden
 

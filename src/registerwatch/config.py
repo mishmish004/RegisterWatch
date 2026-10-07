@@ -17,9 +17,14 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 # a missing file is simply skipped.
 ENV_FILES = (PROJECT_ROOT / ".env", pathlib.Path(".env"))
 
+# Bearer tokens: 32 characters is ~190 bits from token_urlsafe, out of guessing range.
+MIN_TOKEN_LENGTH = 32
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ENV_FILES, extra="ignore")
+    # hide_input_in_errors: a refused value (a token, a database URL with its
+    # password) is not repeated in the error, which ends up in startup logs.
+    model_config = SettingsConfigDict(env_file=ENV_FILES, extra="ignore", hide_input_in_errors=True)
 
     # Postgres (Supabase pooler URI is fine; use the session pooler for CLI runs)
     database_url: str
@@ -79,6 +84,17 @@ class Settings(BaseSettings):
     stale_after_h: float = 26.0
 
     log_level: str = "INFO"
+
+    @field_validator("ingest_token", "read_token")
+    @classmethod
+    def _strong_token(cls, v: str) -> str:
+        # Empty is allowed (ingest off, reads open). A short token is refused at
+        # startup: `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+        # makes one. The message never repeats the value: it would reach the logs.
+        if v and len(v) < MIN_TOKEN_LENGTH:
+            raise ValueError(f"must be at least {MIN_TOKEN_LENGTH} characters (got {len(v)}); "
+                             "use secrets.token_urlsafe(32)")
+        return v
 
     @field_validator("s3_endpoint_url", "database_url", "user_agent")
     @classmethod

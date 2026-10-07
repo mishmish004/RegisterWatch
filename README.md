@@ -132,7 +132,8 @@ The same spec is committed as `openapi/v1.yaml` (`registerwatch openapi --write`
 a test fails when it is stale). `scripts/verify/lint.sh` lints it and
 `scripts/verify/breaking.sh` fails on a change that would break clients;
 `tests/test_contract.py` holds the app to it with generated requests.
-Reads are open unless `READ_TOKEN` is set; operations need `INGEST_TOKEN`.
+Reads are open unless `READ_TOKEN` is set; operations need `INGEST_TOKEN`. Both are bearer
+tokens of at least 32 characters (the spec declares them as `ReadToken` and `IngestToken`).
 
 **v1** — being built under `/v1` ([plan.md](plan.md)); the routes below stay
 until it is complete. Same read token. Collections come as

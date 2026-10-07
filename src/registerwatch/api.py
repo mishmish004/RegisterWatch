@@ -25,18 +25,17 @@ Health
 from __future__ import annotations
 
 import logging
-import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Response, Security
 
 from registerwatch import __version__, jurisdictions, query, registers
 from registerwatch.config import settings
 from registerwatch.db.engine import pool, tx
 from registerwatch.db.repos import snapshots as repo
-from registerwatch.http import guards, openapi, problems, request_id, v1
+from registerwatch.http import deps, guards, openapi, problems, request_id, v1
 from registerwatch.ingest import engine, runs
 from registerwatch.storage.blobs import make_store
 
@@ -87,22 +86,29 @@ app.add_middleware(request_id.RequestIdMiddleware)
 _PG_BIGINT = 2**63 - 1
 # Any route answers this, even one without parameters (http/guards.py).
 _NUL = {400: {"description": "A parameter or the path carried a NUL byte"}}
+# Routes anyone may call, declared so rather than left without a security requirement.
+_OPEN = {"security": []}
 
 
-def require_token(authorization: str | None = Header(default=None)) -> None:
+# The legacy checks compare the raw header, as they always have; the schemes
+# are declared so the spec says how these routes authenticate (Phase 6).
+def require_token(request: Request, _: object = Security(deps.INGEST_TOKEN)) -> None:
     token = settings().ingest_token
     if not token:
         raise HTTPException(503, "INGEST_TOKEN is not configured; ingest endpoint disabled")
-    if not authorization or not secrets.compare_digest(authorization, f"Bearer {token}"):
+    authorization = request.headers.get("authorization")
+    if not authorization or not any(deps.token_matches(authorization, f"Bearer {token}")):
         raise HTTPException(401, "bad or missing bearer token")
 
 
-def require_read(authorization: str | None = Header(default=None)) -> None:
+def require_read(request: Request, _r: object = Security(deps.READ_TOKEN),
+                 _i: object = Security(deps.INGEST_TOKEN)) -> None:
     token = settings().read_token
     if not token:
         return
+    authorization = request.headers.get("authorization")
     ok = [f"Bearer {t}" for t in (token, settings().ingest_token) if t]
-    if not authorization or not any(secrets.compare_digest(authorization, o) for o in ok):
+    if not authorization or not any(deps.token_matches(authorization, *ok)):
         raise HTTPException(401, "bad or missing bearer token")
 
 
@@ -113,19 +119,19 @@ def _registers_of(code: str):
         raise HTTPException(404, exc.args[0]) from None
 
 
-@app.get("/health", tags=["health"], responses=_NUL)
+@app.get("/health", tags=["health"], responses=_NUL, openapi_extra=_OPEN)
 def health() -> dict[str, bool]:
     return {"ok": True}
 
 
-@app.get("/registers", tags=["health"], responses=_NUL)
+@app.get("/registers", tags=["health"], responses=_NUL, openapi_extra=_OPEN)
 def list_registers() -> list[dict[str, Any]]:
     return [{"slug": r.slug, "country": r.country, "regulator": r.regulator, "name": r.name,
              "kind": r.kind, "homepage": r.homepage, "schema": r.slug,
              "tables": {t.name: t.column_names for t in r.tables}} for r in registers.all_registers()]
 
 
-@app.get("/status", tags=["health"], responses=_NUL)
+@app.get("/status", tags=["health"], responses=_NUL, openapi_extra=_OPEN)
 def status(response: Response) -> dict[str, Any]:
     try:
         with tx() as conn:
@@ -177,7 +183,7 @@ def trigger(
             "force": force, "accept_count_delta": accept_count_delta}
 
 
-@app.get("/ingest/last", dependencies=[Depends(require_token)], tags=["ingest"])
+@app.get("/ingest/last", dependencies=[Depends(require_token)], tags=["ingest"], responses=_NUL)
 def last_run() -> dict[str, Any]:
     if not _last:
         raise HTTPException(404, "no run has finished in this process yet")
@@ -201,7 +207,7 @@ def trigger_jurisdiction(code: str, background: BackgroundTasks, response: Respo
 
 # --- reading -------------------------------------------------------------------
 
-@app.get("/jurisdictions", dependencies=[Depends(require_read)], tags=["read"])
+@app.get("/jurisdictions", dependencies=[Depends(require_read)], tags=["read"], responses=_NUL)
 def list_jurisdictions() -> list[dict[str, Any]]:
     return [{"code": code, "name": jurisdictions.name(code),
              "registers": [{"slug": r.slug, "regulator": r.regulator, "kind": r.kind} for r in regs]}

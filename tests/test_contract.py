@@ -84,6 +84,23 @@ def _ok_responses(op: dict):
             yield status, resp, resp.get("content", {}).get("application/json", {})
 
 
+def test_no_authorization_header_param():
+    """T6.1.b (F5): auth is a security scheme, not a string parameter. Every
+    operation, legacy included, says how it authenticates; open ones say `[]`."""
+    spec = api.app.openapi()
+    schemes = spec["components"]["securitySchemes"]
+    assert schemes.keys() == {"ReadToken", "IngestToken"}
+    assert all(s["type"] == "http" and s["scheme"] == "bearer" for s in schemes.values())
+    params = {f"{m} {p}": prm["name"] for m, p, op in _operations() for prm in op.get("parameters", [])
+              if prm["in"] == "header" and prm["name"].lower() == "authorization"}
+    assert not params
+    read, ingest = [{"ReadToken": []}, {"IngestToken": []}], [{"IngestToken": []}]
+    open_ = {"GET /health", "GET /registers", "GET /status"}
+    for m, p, op in _operations():
+        want = [] if f"{m} {p}" in open_ else ingest if "ingest" in p else read
+        assert op.get("security") == want, f"{m} {p}"
+
+
 def test_operation_ids_are_explicit():
     """v1 ids are chosen, not generated; legacy ids stay as they were for existing clients."""
     v1 = [op["operationId"] for _, _, op in _operations("/v1/")]

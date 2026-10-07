@@ -13,6 +13,7 @@ os.environ.update({
     "USER_AGENT": "RegisterWatch/test (+https://registerwatch.test/bot; ops@registerwatch.test)",
     "BLOB_BACKEND": "local",
     "INGEST_TOKEN": "",
+    "READ_TOKEN": "",
     "MIN_REFETCH_INTERVAL_H": "20",
 })
 

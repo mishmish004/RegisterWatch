@@ -19,15 +19,6 @@ paths:
       - jurisdictions
       summary: List jurisdictions
       operationId: listJurisdictions
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -45,12 +36,18 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+      security:
+      - ReadToken: []
+      - IngestToken: []
   /v1/jurisdictions/{code}:
     get:
       tags:
       - jurisdictions
       summary: Get a jurisdiction with its registers and their freshness
       operationId: getJurisdiction
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: code
         in: path
@@ -62,14 +59,6 @@ paths:
           - ch
           title: Code
         description: 'Jurisdiction code, any case, `-` or `_`: `gb`, `US-NJ`, `ca_on`'
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -97,6 +86,9 @@ paths:
       description: Registers interleave by when their snapshots were recorded. Each register's first complete
         snapshot is its baseline, not a change.
       operationId: listJurisdictionChanges
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: code
         in: path
@@ -151,14 +143,6 @@ paths:
           description: '`next_cursor` from the previous page'
           title: Cursor
         description: '`next_cursor` from the previous page'
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -184,15 +168,6 @@ paths:
       - registers
       summary: List registers
       operationId: listRegisters
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -210,12 +185,18 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+      security:
+      - ReadToken: []
+      - IngestToken: []
   /v1/registers/{slug}:
     get:
       tags:
       - registers
       summary: Get a register with its tables and freshness
       operationId: getRegister
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: slug
         in: path
@@ -227,14 +208,6 @@ paths:
           - gb_ukgc
           title: Slug
         description: Register slug, e.g. `gb_ukgc`
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -260,6 +233,9 @@ paths:
       - registers
       summary: Get a table's columns
       operationId: getTable
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: slug
         in: path
@@ -281,14 +257,6 @@ paths:
           - licences
           title: Table
         description: Table name within the register
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -316,6 +284,9 @@ paths:
       description: Rows in `id` order. Every page of one walk is read as of the snapshot the first page
         was, so an ingest during the walk neither repeats nor skips a row.
       operationId: listRows
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: slug
         in: path
@@ -379,14 +350,6 @@ paths:
           default: false
           title: Include Total
         description: Also count every matching row (slower)
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       - name: filter
         in: query
         style: deepObject
@@ -423,6 +386,9 @@ paths:
       - rows
       summary: Get one row, current or not, with its history
       operationId: getRow
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: slug
         in: path
@@ -456,14 +422,6 @@ paths:
           - 1187
           title: Id
         description: The row's `id`
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -491,6 +449,9 @@ paths:
       description: 'The register''s first complete snapshot is its baseline, not a change. Never truncated:
         follow `next_cursor` until `has_more` is false.'
       operationId: listRegisterChanges
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: slug
         in: path
@@ -545,14 +506,6 @@ paths:
           description: '`next_cursor` from the previous page'
           title: Cursor
         description: '`next_cursor` from the previous page'
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -578,6 +531,9 @@ paths:
       - registers
       summary: Every ingest run of a register, complete or not, newest first
       operationId: listSnapshots
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: slug
         in: path
@@ -610,14 +566,6 @@ paths:
           description: '`next_cursor` from the previous page'
           title: Cursor
         description: '`next_cursor` from the previous page'
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -643,6 +591,9 @@ paths:
       - search
       summary: Find text in every register's current rows
       operationId: search
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: q
         in: query
@@ -677,14 +628,6 @@ paths:
           default: 20
           title: Limit
         description: Rows returned per table
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -710,6 +653,9 @@ paths:
       description: A leading `www.` is ignored, and a listed subdomain counts as a match of its parent
         (`nj.bet365.com` for `bet365.com`), marked `subdomain`.
       operationId: getDomainStatus
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: domain
         in: path
@@ -734,14 +680,6 @@ paths:
           description: Only these jurisdictions; repeat the parameter for several (`?jurisdiction=gb&jurisdiction=de`)
           title: Jurisdiction
         description: Only these jurisdictions; repeat the parameter for several (`?jurisdiction=gb&jurisdiction=de`)
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -768,6 +706,8 @@ paths:
         across every replica: a second is a 409 linking the active one. With `Idempotency-Key`, a repeat
         of the same request within 24 hours returns the original run (200) instead of starting another.'
       operationId: createIngestRun
+      security:
+      - IngestToken: []
       parameters:
       - name: idempotency-key
         in: header
@@ -781,14 +721,6 @@ paths:
           description: Any string you choose, unique per intended run
           title: Idempotency-Key
         description: Any string you choose, unique per intended run
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       requestBody:
         content:
           application/json:
@@ -835,6 +767,8 @@ paths:
       - ingest
       summary: List ingest runs, newest first
       operationId: listIngestRuns
+      security:
+      - IngestToken: []
       parameters:
       - name: limit
         in: query
@@ -857,14 +791,6 @@ paths:
           description: '`next_cursor` from the previous page'
           title: Cursor
         description: '`next_cursor` from the previous page'
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -890,6 +816,8 @@ paths:
       - ingest
       summary: Get one ingest run
       operationId: getIngestRun
+      security:
+      - IngestToken: []
       parameters:
       - name: id
         in: path
@@ -900,14 +828,6 @@ paths:
           description: The run's id, from its `url`
           title: Id
         description: The run's id, from its `url`
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -947,6 +867,7 @@ paths:
                 title: Response Health Health Get
         '400':
           description: A parameter or the path carried a NUL byte
+      security: []
   /registers:
     get:
       tags:
@@ -966,6 +887,7 @@ paths:
                 title: Response List Registers Registers Get
         '400':
           description: A parameter or the path carried a NUL byte
+      security: []
   /status:
     get:
       tags:
@@ -983,12 +905,15 @@ paths:
                 title: Response Status Status Get
         '400':
           description: A parameter or the path carried a NUL byte
+      security: []
   /ingest/{slug}:
     post:
       tags:
       - ingest
       summary: Trigger
       operationId: trigger_ingest__slug__post
+      security:
+      - IngestToken: []
       parameters:
       - name: slug
         in: path
@@ -1017,14 +942,6 @@ paths:
           type: boolean
           default: false
           title: Wait
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '202':
           description: Successful Response
@@ -1046,36 +963,27 @@ paths:
       - ingest
       summary: Last Run
       operationId: last_run_ingest_last_get
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                type: object
                 additionalProperties: true
+                type: object
                 title: Response Last Run Ingest Last Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+        '400':
+          description: A parameter or the path carried a NUL byte
+      security:
+      - IngestToken: []
   /jurisdictions/{code}/ingest:
     post:
       tags:
       - ingest
       summary: Trigger Jurisdiction
       operationId: trigger_jurisdiction_jurisdictions__code__ingest_post
+      security:
+      - IngestToken: []
       parameters:
       - name: code
         in: path
@@ -1104,14 +1012,6 @@ paths:
           type: boolean
           default: false
           title: Wait
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '202':
           description: Successful Response
@@ -1133,38 +1033,31 @@ paths:
       - read
       summary: List Jurisdictions
       operationId: list_jurisdictions_jurisdictions_get
-      parameters:
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
           content:
             application/json:
               schema:
-                type: array
                 items:
-                  type: object
                   additionalProperties: true
+                  type: object
+                type: array
                 title: Response List Jurisdictions Jurisdictions Get
-        '422':
-          description: Validation Error
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
+        '400':
+          description: A parameter or the path carried a NUL byte
+      security:
+      - ReadToken: []
+      - IngestToken: []
   /jurisdictions/{code}:
     get:
       tags:
       - read
       summary: Get Jurisdiction
       operationId: get_jurisdiction_jurisdictions__code__get
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: code
         in: path
@@ -1172,14 +1065,6 @@ paths:
         schema:
           type: string
           title: Code
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -1201,6 +1086,9 @@ paths:
       - read
       summary: Get Changes
       operationId: get_changes_jurisdictions__code__changes_get
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: code
         in: path
@@ -1226,14 +1114,6 @@ paths:
           minimum: 0
           default: 200
           title: Limit
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -1258,6 +1138,9 @@ paths:
 
         e.g. `/jurisdictions/gb/gb_ukgc/licences?status=Active&type=Remote`.'
       operationId: get_rows_jurisdictions__code___slug___table__get
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: code
         in: path
@@ -1301,14 +1184,6 @@ paths:
           minimum: 0
           default: 0
           title: Offset
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -1330,6 +1205,9 @@ paths:
       - read
       summary: Search
       operationId: search_search_get
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: q
         in: query
@@ -1353,14 +1231,6 @@ paths:
           type: integer
           default: 20
           title: Limit
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -1382,6 +1252,9 @@ paths:
       - read
       summary: Check Domain
       operationId: check_domain_check_domain__domain__get
+      security:
+      - ReadToken: []
+      - IngestToken: []
       parameters:
       - name: domain
         in: path
@@ -1397,14 +1270,6 @@ paths:
           - type: string
           - type: 'null'
           title: Jurisdiction
-      - name: authorization
-        in: header
-        required: false
-        schema:
-          anyOf:
-          - type: string
-          - type: 'null'
-          title: Authorization
       responses:
         '200':
           description: Successful Response
@@ -2720,6 +2585,16 @@ components:
       - request_id
       title: Problem
       type: object
+  securitySchemes:
+    ReadToken:
+      type: http
+      description: '`READ_TOKEN`. Needed on read routes only when the server sets one; when it does not,
+        reads are open. The ingest token reads too.'
+      scheme: bearer
+    IngestToken:
+      type: http
+      description: '`INGEST_TOKEN`. Starts and lists ingest runs, and reads. A read token here is a 403.'
+      scheme: bearer
   responses:
     BadRequest:
       description: 'A parameter is invalid; `errors` names each one. Types: `invalid-parameter`, `unknown-filter-column`,
@@ -2740,7 +2615,7 @@ components:
               location: query
               message: Input should be less than or equal to 1000
     Unauthenticated:
-      description: 'A read token is configured and the request did not carry it. Types: `unauthenticated`'
+      description: 'The bearer token is missing, or is not one this route takes. Types: `unauthenticated`'
       content:
         application/problem+json:
           schema:
@@ -2749,9 +2624,15 @@ components:
             type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#unauthenticated
             title: Authentication required
             status: 401
-            detail: bad or missing bearer token
+            detail: the bearer token is not valid here
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
+        WWW-Authenticate:
+          description: '`Bearer realm="registerwatch"`, with `error="invalid_token"` when a token was
+            sent but is not valid (RFC 6750)'
+          schema:
+            type: string
     Forbidden:
       description: 'The token is valid but cannot do this (a read token on an ingest operation). Types:
         `forbidden`'

@@ -13,7 +13,8 @@ import secrets
 from contextlib import AbstractContextManager
 from typing import Any
 
-from fastapi import Header, Query, Request
+from fastapi import Query, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from psycopg import Connection
 from pydantic import AwareDatetime
 
@@ -39,27 +40,62 @@ def connection() -> AbstractContextManager[Connection]:
     return tx()
 
 
-def require_read(authorization: str | None = Header(default=None)) -> None:
+# The two bearer schemes the spec declares. Both read the one Authorization
+# header; `auto_error=False` leaves every refusal to the checks below, so it is
+# a problem with the right status and `WWW-Authenticate`, not FastAPI's 403.
+READ_TOKEN = HTTPBearer(
+    scheme_name="ReadToken", auto_error=False,
+    description="`READ_TOKEN`. Needed on read routes only when the server sets one; when it does not, "
+                "reads are open. The ingest token reads too.")
+INGEST_TOKEN = HTTPBearer(
+    scheme_name="IngestToken", auto_error=False,
+    description="`INGEST_TOKEN`. Starts and lists ingest runs, and reads. A read token here is a 403.")
+
+_CHALLENGE = 'Bearer realm="registerwatch"'
+
+
+def token_matches(given: str, *candidates: str) -> list[bool]:
+    """Compare against every configured token, each in constant time, without
+    stopping at the first match. Bytes, because `compare_digest` raises on a
+    non-ASCII str and a header can carry Latin-1."""
+    return [secrets.compare_digest(given.encode(), c.encode()) for c in candidates if c]
+
+
+def unauthenticated(presented: bool) -> ProblemError:
+    """401. A token that was sent but is not known gets `error="invalid_token"`
+    (RFC 6750 3.1); a request with no bearer token gets the bare challenge."""
+    challenge = _CHALLENGE + (', error="invalid_token"' if presented else "")
+    detail = "the bearer token is not valid here" if presented else "send Authorization: Bearer <token>"
+    return ProblemError(Catalog.UNAUTHENTICATED, detail, headers={"WWW-Authenticate": challenge})
+
+
+def require_read(creds: HTTPAuthorizationCredentials | None = Security(READ_TOKEN),
+                 _: HTTPAuthorizationCredentials | None = Security(INGEST_TOKEN)) -> None:
+    """Open unless READ_TOKEN is set; then the read or the ingest token. The second
+    parameter is the same header, declared so the spec offers either scheme."""
     token = settings().read_token
     if not token:
         return
-    ok = [f"Bearer {t}" for t in (token, settings().ingest_token) if t]
-    if not authorization or not any(secrets.compare_digest(authorization, o) for o in ok):
-        raise ProblemError(Catalog.UNAUTHENTICATED, "bad or missing bearer token")
+    if creds is None:
+        raise unauthenticated(False)
+    if not any(token_matches(creds.credentials, token, settings().ingest_token)):
+        raise unauthenticated(True)
 
 
-def require_ingest(authorization: str | None = Header(default=None)) -> None:
+def require_ingest(creds: HTTPAuthorizationCredentials | None = Security(INGEST_TOKEN)) -> None:
     """The ingest token. A valid read token is a 403, not a 401: it is a token,
     just not one that can do this."""
     token = settings().ingest_token
     if not token:
         raise ProblemError(Catalog.INGEST_DISABLED, "INGEST_TOKEN is not configured; ingest is switched off")
-    if authorization and secrets.compare_digest(authorization, f"Bearer {token}"):
+    if creds is None:
+        raise unauthenticated(False)
+    ingest, *read = token_matches(creds.credentials, token, settings().read_token)
+    if ingest:
         return
-    read = settings().read_token
-    if authorization and read and secrets.compare_digest(authorization, f"Bearer {read}"):
+    if any(read):
         raise ProblemError(Catalog.FORBIDDEN, "a read token cannot start or list ingest runs")
-    raise ProblemError(Catalog.UNAUTHENTICATED, "bad or missing bearer token")
+    raise unauthenticated(True)
 
 
 def json_body_only(request: Request) -> None:
