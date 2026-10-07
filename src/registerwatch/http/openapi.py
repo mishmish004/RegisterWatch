@@ -50,7 +50,8 @@ def _problems(spec: dict[str, Any]) -> None:
             continue
         for op in item.values():
             responses = op.get("responses", {})
-            responses.pop("422", None)
+            if "$ref" not in responses.get("422", {"$ref": ""}):  # FastAPI's own; v1 answers 400
+                responses.pop("422")
             for code, response in responses.items():
                 if "$ref" in response:  # FastAPI adds a description beside the reference
                     responses[code] = {"$ref": response["$ref"]}

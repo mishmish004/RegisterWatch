@@ -759,6 +759,176 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /v1/ingest-runs:
+    post:
+      tags:
+      - ingest
+      summary: Start an ingest run
+      description: 'Answers at once with the run; poll its `url` (also in `Location`). One run at a time
+        across every replica: a second is a 409 linking the active one. With `Idempotency-Key`, a repeat
+        of the same request within 24 hours returns the original run (200) instead of starting another.'
+      operationId: createIngestRun
+      parameters:
+      - name: idempotency-key
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 255
+          - type: 'null'
+          description: Any string you choose, unique per intended run
+          title: Idempotency-Key
+        description: Any string you choose, unique per intended run
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      requestBody:
+        content:
+          application/json:
+            schema:
+              anyOf:
+              - $ref: '#/components/schemas/IngestRunRequest'
+              - type: 'null'
+              title: Body
+      responses:
+        '200':
+          description: 'A replay of an earlier request with the same `Idempotency-Key`: the original run'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestRun'
+        '202':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '415':
+          $ref: '#/components/responses/UnsupportedMediaType'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyReused'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    get:
+      tags:
+      - ingest
+      summary: List ingest runs, newest first
+      operationId: listIngestRuns
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          description: Page size
+          default: 100
+          title: Limit
+        description: Page size
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`next_cursor` from the previous page'
+          title: Cursor
+        description: '`next_cursor` from the previous page'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestRunPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/ingest-runs/{id}:
+    get:
+      tags:
+      - ingest
+      summary: Get one ingest run
+      operationId: getIngestRun
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          description: The run's id, from its `url`
+          title: Id
+        description: The run's id, from its `url`
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /health:
     get:
       tags:
@@ -1505,6 +1675,224 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    IngestRun:
+      properties:
+        id:
+          type: string
+          title: Id
+        status:
+          type: string
+          enum:
+          - queued
+          - running
+          - succeeded
+          - partial
+          - failed
+          title: Status
+          description: '`partial`: some registers incomplete or not started; `failed`: the run itself
+            broke'
+        requested:
+          $ref: '#/components/schemas/IngestRunRequest'
+          description: The request as it was received
+        registers:
+          items:
+            type: string
+          type: array
+          title: Registers
+          description: What the request resolved to, in run order
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        started_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Started At
+        finished_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Finished At
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+          description: Why the run failed, e.g. `worker lost`
+        results:
+          items:
+            $ref: '#/components/schemas/IngestRunResult'
+          type: array
+          title: Results
+          description: One per register finished, in run order
+        not_started:
+          items:
+            type: string
+          type: array
+          title: Not Started
+          description: Registers the run stopped before (a shutdown)
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - id
+      - status
+      - requested
+      - registers
+      - created_at
+      - started_at
+      - finished_at
+      - error
+      - results
+      - not_started
+      - url
+      title: IngestRun
+      examples:
+      - &id003
+        id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+        status: partial
+        requested:
+          registers: null
+          jurisdiction: ch
+          force: false
+          accept_count_delta: false
+        registers:
+        - ch_esbk
+        - ch_gespa
+        created_at: '2026-10-07T06:00:00Z'
+        started_at: '2026-10-07T06:00:00Z'
+        finished_at: '2026-10-07T06:00:19Z'
+        error: null
+        results:
+        - &id004
+          register: ch_esbk
+          snapshot_id: 431
+          complete: true
+          skipped: false
+          unchanged: false
+          reason: null
+          record_count: 1532
+          finished_at: '2026-10-07T06:00:12Z'
+        not_started:
+        - ch_gespa
+        url: /v1/ingest-runs/0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+    IngestRunPage:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/IngestRun'
+          type: array
+          title: Data
+          description: Newest first
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      type: object
+      required:
+      - data
+      - pagination
+      title: IngestRunPage
+      examples:
+      - data:
+        - *id003
+        pagination:
+          next_cursor: null
+          has_more: false
+          limit: 100
+          total: null
+    IngestRunRequest:
+      properties:
+        registers:
+          anyOf:
+          - items:
+              type: string
+            type: array
+            maxItems: 100
+            minItems: 1
+          - type: 'null'
+          title: Registers
+          description: Register slugs; not with `jurisdiction`
+        jurisdiction:
+          anyOf:
+          - type: string
+            maxLength: 10
+          - type: 'null'
+          title: Jurisdiction
+          description: Every register of one jurisdiction
+        force:
+          type: boolean
+          title: Force
+          description: Fetch even when a good snapshot is recent
+          default: false
+        accept_count_delta:
+          type: boolean
+          title: Accept Count Delta
+          description: Accept a row count far from the last one
+          default: false
+      additionalProperties: false
+      type: object
+      title: IngestRunRequest
+      description: 'Which registers to ingest: `registers`, or `jurisdiction`, or neither for all.'
+      examples:
+      - jurisdiction: ch
+      - registers:
+        - gb_ukgc
+        force: true
+      - {}
+    IngestRunResult:
+      properties:
+        register:
+          type: string
+          title: Register
+          description: Register slug, also its Postgres schema
+        snapshot_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Snapshot Id
+          description: The snapshot this run recorded; null if none was
+        complete:
+          type: boolean
+          title: Complete
+        skipped:
+          type: boolean
+          title: Skipped
+          description: 'Not fetched: a good snapshot is recent and `force` was not set'
+        unchanged:
+          type: boolean
+          title: Unchanged
+          description: Fetched, and identical to the previous snapshot
+        reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Reason
+          description: Why it was not complete
+        record_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Record Count
+        finished_at:
+          type: string
+          format: date-time
+          title: Finished At
+      type: object
+      required:
+      - register
+      - snapshot_id
+      - complete
+      - skipped
+      - unchanged
+      - reason
+      - record_count
+      - finished_at
+      title: IngestRunResult
+      examples:
+      - *id004
     Jurisdiction:
       properties:
         code:
@@ -1530,7 +1918,7 @@ components:
       - registers
       title: Jurisdiction
       examples:
-      - &id003
+      - &id005
         code: CH
         name: Switzerland
         url: /v1/jurisdictions/ch
@@ -1583,7 +1971,7 @@ components:
           homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
           url: /v1/registers/ch_esbk
           tables:
-          - &id004
+          - &id006
             register: ch_esbk
             name: blocked_domains
             description: null
@@ -1613,7 +2001,7 @@ components:
       title: JurisdictionPage
       examples:
       - data:
-        - *id003
+        - *id005
         pagination:
           next_cursor: null
           has_more: false
@@ -1695,7 +2083,7 @@ components:
       - tables
       title: Register
       examples:
-      - &id005
+      - &id007
         slug: ch_esbk
         jurisdiction: CH
         regulator: Eidgenössische Spielbankenkommission (ESBK)
@@ -1704,7 +2092,7 @@ components:
         homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
         url: /v1/registers/ch_esbk
         tables:
-        - *id004
+        - *id006
     RegisterDetail:
       properties:
         slug:
@@ -1762,7 +2150,7 @@ components:
         homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
         url: /v1/registers/ch_esbk
         tables:
-        - *id004
+        - *id006
         freshness:
           last_attempt_at: '2026-10-07T06:00:41Z'
           last_good_at: '2026-10-07T06:00:41Z'
@@ -1784,7 +2172,7 @@ components:
       title: RegisterPage
       examples:
       - data:
-        - *id005
+        - *id007
         pagination:
           next_cursor: null
           has_more: false
@@ -1877,12 +2265,12 @@ components:
       - values
       title: Row
       examples:
-      - &id007
+      - &id009
         id: 1187
         first_seen_snapshot_id: 412
         first_seen_at: '2026-10-05T06:01:12Z'
         last_seen_at: '2026-10-07T06:00:41Z'
-        values: &id006
+        values: &id008
           account_number: '102'
           licence_number: 000102-N-000000-000
           status: Pending
@@ -1970,7 +2358,7 @@ components:
         first_seen_snapshot_id: 412
         first_seen_at: '2026-10-05T06:01:12Z'
         last_seen_at: '2026-10-07T06:00:41Z'
-        values: *id006
+        values: *id008
         last_seen_snapshot_id: 431
         removed_snapshot_id: null
         removed_at: null
@@ -1992,7 +2380,7 @@ components:
       title: RowPage
       examples:
       - data:
-        - *id007
+        - *id009
         pagination:
           next_cursor: eyJwIjp7Im8iOjF9LCJzIjoiYjk0YzQ3YjNiYzNkZTE2NyJ9
           has_more: true
@@ -2045,7 +2433,7 @@ components:
       - rows_url
       title: SearchHit
       examples:
-      - &id008
+      - &id010
         jurisdiction: CH
         register: ch_esbk
         regulator: Eidgenössische Spielbankenkommission (ESBK)
@@ -2078,7 +2466,7 @@ components:
       title: SearchHitPage
       examples:
       - data:
-        - *id008
+        - *id010
         pagination:
           next_cursor: null
           has_more: false
@@ -2140,7 +2528,7 @@ components:
       - pages_ok
       title: Snapshot
       examples:
-      - &id009
+      - &id011
         id: 433
         register: gb_ukgc
         run_started_at: '2026-10-07T06:00:02Z'
@@ -2168,7 +2556,7 @@ components:
       title: SnapshotPage
       examples:
       - data:
-        - *id009
+        - *id011
         pagination:
           next_cursor: eyJwIjp7ImsiOjQzM30sInMiOiI3In0
           has_more: true
@@ -2364,9 +2752,23 @@ components:
             detail: bad or missing bearer token
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+    Forbidden:
+      description: 'The token is valid but cannot do this (a read token on an ingest operation). Types:
+        `forbidden`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#forbidden
+            title: Not allowed with this token
+            status: 403
+            detail: a read token cannot start or list ingest runs
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
     NotFound:
-      description: 'An identifier in the path does not exist. Types: `jurisdiction-not-found`, `register-not-found`,
-        `table-not-found`'
+      description: 'An identifier in the path or body does not exist. Types: `jurisdiction-not-found`,
+        `register-not-found`, `table-not-found`, `row-not-found`, `ingest-run-not-found`'
       content:
         application/problem+json:
           schema:
@@ -2376,6 +2778,50 @@ components:
             title: Unknown jurisdiction
             status: 404
             detail: 'unknown jurisdiction ''zz''; known: au, be, ca, ...'
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+    Conflict:
+      description: 'An ingest run is already going; `active_run` links to it. Types: `ingest-in-progress`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#ingest-in-progress
+            title: An ingest is already running
+            status: 409
+            detail: 'an ingest run is already going: /v1/ingest-runs/0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11'
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers: &id012
+        Retry-After:
+          description: Seconds to wait before retrying
+          schema:
+            type: integer
+    UnsupportedMediaType:
+      description: 'The body is not `application/json`. Types: `unsupported-media-type`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#unsupported-media-type
+            title: Unsupported media type
+            status: 415
+            detail: send the body as application/json, not text/plain
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+    IdempotencyKeyReused:
+      description: 'The `Idempotency-Key` was used with a different body. Types: `idempotency-key-reused`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#idempotency-key-reused
+            title: Idempotency key reused with a different request
+            status: 422
+            detail: Idempotency-Key 'cron-2026-10-07' was used with a different body
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
     TooManyRequests:
@@ -2391,11 +2837,7 @@ components:
             detail: 60 requests per minute for /v1/search; retry in 12 s
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
-      headers: &id010
-        Retry-After:
-          description: Seconds to wait before retrying
-          schema:
-            type: integer
+      headers: *id012
     InternalError:
       description: 'An unexpected error; quote `request_id` when reporting it. Types: `internal`'
       content:
@@ -2410,7 +2852,8 @@ components:
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
     ServiceUnavailable:
-      description: 'The database cannot be reached; retry after `Retry-After` seconds. Types: `database-unavailable`'
+      description: 'The database cannot be reached (retry after `Retry-After` seconds), or ingest is not
+        configured on this deployment. Types: `database-unavailable`, `ingest-disabled`'
       content:
         application/problem+json:
           schema:
@@ -2422,4 +2865,4 @@ components:
             detail: the database cannot be reached right now; retry shortly
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
-      headers: *id010
+      headers: *id012

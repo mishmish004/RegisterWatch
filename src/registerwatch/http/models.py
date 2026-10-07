@@ -416,3 +416,74 @@ class SnapshotPage(BaseModel):
         "next_cursor": "eyJwIjp7ImsiOjQzM30sInMiOiI3In0", "has_more": True, "limit": 1, "total": None}})
     data: list[Snapshot] = Field(description="Newest first")
     pagination: Pagination
+
+
+# --- ingest runs -----------------------------------------------------------------
+
+_RUN_EXAMPLE = {
+    "id": "0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11", "status": "partial",
+    "requested": {"registers": None, "jurisdiction": "ch", "force": False, "accept_count_delta": False},
+    "registers": ["ch_esbk", "ch_gespa"], "created_at": "2026-10-07T06:00:00Z",
+    "started_at": "2026-10-07T06:00:00Z", "finished_at": "2026-10-07T06:00:19Z", "error": None,
+    "results": [{"register": "ch_esbk", "snapshot_id": 431, "complete": True, "skipped": False,
+                 "unchanged": False, "reason": None, "record_count": 1532,
+                 "finished_at": "2026-10-07T06:00:12Z"}],
+    "not_started": ["ch_gespa"], "url": "/v1/ingest-runs/0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11",
+}
+
+
+class IngestRunRequest(BaseModel):
+    """Which registers to ingest: `registers`, or `jurisdiction`, or neither for all."""
+
+    model_config = ConfigDict(extra="forbid", json_schema_extra={"examples": [
+        {"jurisdiction": "ch"}, {"registers": ["gb_ukgc"], "force": True}, {}]})
+    registers: list[str] | None = Field(default=None, min_length=1, max_length=100,
+                                        description="Register slugs; not with `jurisdiction`")
+    jurisdiction: str | None = Field(default=None, max_length=10, description="Every register of one jurisdiction")
+    force: bool = Field(default=False, description="Fetch even when a good snapshot is recent")
+    accept_count_delta: bool = Field(default=False, description="Accept a row count far from the last one")
+
+
+class IngestRunResult(BaseModel):
+    model_config = _examples(_RUN_EXAMPLE["results"][0])
+    register_: str = REGISTER
+    snapshot_id: int | None = Field(description="The snapshot this run recorded; null if none was")
+    complete: bool
+    skipped: bool = Field(description="Not fetched: a good snapshot is recent and `force` was not set")
+    unchanged: bool = Field(description="Fetched, and identical to the previous snapshot")
+    reason: str | None = Field(description="Why it was not complete")
+    record_count: int | None
+    finished_at: datetime
+
+
+class IngestRun(BaseModel):
+    model_config = _examples(_RUN_EXAMPLE)
+    id: str
+    status: Literal["queued", "running", "succeeded", "partial", "failed"] = Field(
+        description="`partial`: some registers incomplete or not started; `failed`: the run itself broke")
+    requested: IngestRunRequest = Field(description="The request as it was received")
+    registers: list[str] = Field(description="What the request resolved to, in run order")
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    error: str | None = Field(description="Why the run failed, e.g. `worker lost`")
+    results: list[IngestRunResult] = Field(description="One per register finished, in run order")
+    not_started: list[str] = Field(description="Registers the run stopped before (a shutdown)")
+    url: str
+
+    @classmethod
+    def of(cls, run: dict[str, Any]) -> IngestRun:
+        return cls(id=str(run["id"]), status=run["status"], requested=IngestRunRequest(**run["requested"]),
+                   registers=run["registers"], created_at=run["created_at"], started_at=run["started_at"],
+                   finished_at=run["finished_at"], error=run["error"], not_started=run["not_started"],
+                   results=[IngestRunResult(register_=r["slug"], **{k: r[k] for k in (
+                       "snapshot_id", "complete", "skipped", "unchanged", "reason", "record_count", "finished_at")})
+                       for r in run["results"]],
+                   url=f"/v1/ingest-runs/{run['id']}")
+
+
+class IngestRunPage(BaseModel):
+    model_config = _examples({"data": [_RUN_EXAMPLE], "pagination": {
+        "next_cursor": None, "has_more": False, "limit": 100, "total": None}})
+    data: list[IngestRun] = Field(description="Newest first")
+    pagination: Pagination

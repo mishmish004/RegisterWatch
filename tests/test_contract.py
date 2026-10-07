@@ -24,10 +24,12 @@ import os
 import pathlib
 from types import SimpleNamespace
 
+import psycopg
 import pytest
 import schemathesis
 from hypothesis import HealthCheck, settings
 from hypothesis import strategies as st
+from psycopg.rows import dict_row
 from schemathesis.checks import (
     content_type_conformance,
     not_a_server_error,
@@ -38,7 +40,9 @@ from schemathesis.core.failures import Failure, FailureGroup
 
 from registerwatch import api, jurisdictions
 from registerwatch.cli import OPENAPI_SPEC, openapi_yaml
+from registerwatch.db.repos import ingest_runs as ingest_repo
 from registerwatch.http import deps
+from registerwatch.ingest import runs
 from registerwatch.ingest.engine import IngestResult
 from registerwatch.registers import REGISTRY, all_registers
 from tests.test_postgres import DSN, db, loaded  # noqa: F401 — fixtures, used in pg mode
@@ -129,6 +133,11 @@ def test_schema_examples_validate_against_their_schemas():
 # Path parameters that name a resource, so an unknown value is a 404. `domain` is a
 # lookup key: any hostname has a status, possibly empty.
 RESOURCE_IDS = {"code", "slug", "table", "id"}
+# Ingest operations take the ingest token, so a read token is a 403; creating a
+# run can also find its registers missing, a run going, a non-JSON body, or a
+# reused Idempotency-Key.
+INGEST_ERRORS = {"createIngestRun": {"403", "404", "409", "415", "422"},
+                 "listIngestRuns": {"403"}, "getIngestRun": {"403"}}
 
 
 def test_error_responses_documented():
@@ -139,7 +148,8 @@ def test_error_responses_documented():
     for m, p, op in _operations("/v1/"):
         path_ids = {q["name"] for q in op.get("parameters", []) if q["in"] == "path"} & RESOURCE_IDS
         # 400 everywhere: an operation without parameters still refuses undeclared ones.
-        want = {"400", "401", "429", "500", "503"} | ({"404"} if path_ids else set())
+        want = ({"400", "401", "429", "500", "503"} | ({"404"} if path_ids else set())
+                | INGEST_ERRORS.get(op["operationId"], set()))
         errors = {s for s in op["responses"] if not s.startswith("2")}
         if errors != want:
             wrong[f"{m} {p}"] = sorted(errors ^ want)
@@ -182,6 +192,43 @@ class _Result:
         return []
 
 
+class _MemoryRuns:
+    """ingest_runs without a database, for the fake mode."""
+
+    def __init__(self):
+        self.runs = {}
+
+    def create(self, conn, run_id, requested, registers, key, request_hash):
+        from datetime import datetime, timezone
+
+        self.runs[run_id] = {"id": run_id, "status": "queued", "requested": requested, "registers": registers,
+                             "not_started": [], "idempotency_key": key, "request_hash": request_hash,
+                             "created_at": datetime.now(timezone.utc), "started_at": None, "finished_at": None,
+                             "error": None, "results": []}
+        return self.runs[run_id]
+
+    def by_key(self, conn, key):
+        return next((r for r in self.runs.values() if key and r["idempotency_key"] == key), None)
+
+    def get(self, conn, run_id):
+        return self.runs.get(run_id)
+
+    def active(self, conn):
+        return None
+
+    def page(self, conn, *, before, limit):
+        rows = sorted(self.runs.values(), key=lambda r: (r["created_at"], r["id"]), reverse=True)
+        return [r for r in rows if before is None or (r["created_at"], r["id"]) < before][:limit + 1]
+
+
+class _Lease:
+    def alive(self):
+        return True
+
+    def release(self):
+        pass
+
+
 class _FakeConn:
     def execute(self, query, *_a, **_k):
         text = query if isinstance(query, str) else query.as_string(None)
@@ -203,6 +250,19 @@ def app_under_test(request):
         tx = request.getfixturevalue("loaded") if MODE == "pg" else (lambda: contextlib.nullcontext(_FakeConn()))
         mp.setattr(api, "tx", tx)    # legacy routes
         mp.setattr(deps, "tx", tx)   # v1
+        # v1 ingest runs: never a real fetch. In pg mode the runs and their lock are real.
+        mp.setattr(runs, "make_store", lambda: object())
+        mp.setattr(runs.engine, "ingest", lambda r, store, **kw: IngestResult(r.slug, None, True, None, 1, 1,
+                                                                              record_count=10))
+        if MODE == "pg":
+            mp.setattr(runs, "tx", tx)
+            mp.setattr(runs, "connect", lambda: psycopg.connect(DSN, autocommit=True, row_factory=dict_row))
+        else:
+            memory = _MemoryRuns()
+            for name in ("create", "by_key", "get", "active", "page"):
+                mp.setattr(ingest_repo, name, getattr(memory, name))
+            mp.setattr(runs, "acquire", lambda: _Lease())
+            mp.setattr(runs, "execute", lambda lease, run_id, targets, **kw: lease.release())
         api._last.clear()
         yield api.app
     if api._running.locked():

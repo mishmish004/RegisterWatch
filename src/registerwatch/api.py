@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import logging
 import secrets
-import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -38,14 +37,15 @@ from registerwatch.config import settings
 from registerwatch.db.engine import pool, tx
 from registerwatch.db.repos import snapshots as repo
 from registerwatch.http import guards, openapi, problems, request_id, v1
-from registerwatch.ingest import engine
+from registerwatch.ingest import engine, runs
 from registerwatch.storage.blobs import make_store
 
 log = logging.getLogger(__name__)
 
 # One batch at a time per process. The retry slots and a hand-fired run can
-# overlap; the second is refused rather than queued behind the first.
-_running = threading.Lock()
+# overlap; the second is refused rather than queued behind the first. The same
+# lock v1 runs take (with a cross-process one), so legacy and v1 never overlap here.
+_running = runs.LOCAL
 _last: dict[str, Any] = {}
 
 
@@ -56,6 +56,8 @@ async def lifespan(_: FastAPI):
         level=settings().log_level,  # also fails fast on a bad .env
         format="%(asctime)s %(levelname)s %(name)s [%(request_id)s] %(message)s",
     )
+    runs.stop_on_sigterm()
+    runs.sweep_on_startup()
     yield
     if pool.cache_info().currsize:
         pool().close()

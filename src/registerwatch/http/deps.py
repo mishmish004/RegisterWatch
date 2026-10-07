@@ -48,6 +48,28 @@ def require_read(authorization: str | None = Header(default=None)) -> None:
         raise ProblemError(Catalog.UNAUTHENTICATED, "bad or missing bearer token")
 
 
+def require_ingest(authorization: str | None = Header(default=None)) -> None:
+    """The ingest token. A valid read token is a 403, not a 401: it is a token,
+    just not one that can do this."""
+    token = settings().ingest_token
+    if not token:
+        raise ProblemError(Catalog.INGEST_DISABLED, "INGEST_TOKEN is not configured; ingest is switched off")
+    if authorization and secrets.compare_digest(authorization, f"Bearer {token}"):
+        return
+    read = settings().read_token
+    if authorization and read and secrets.compare_digest(authorization, f"Bearer {read}"):
+        raise ProblemError(Catalog.FORBIDDEN, "a read token cannot start or list ingest runs")
+    raise ProblemError(Catalog.UNAUTHENTICATED, "bad or missing bearer token")
+
+
+def json_body_only(request: Request) -> None:
+    """A body, when there is one, must be JSON (415 otherwise, not a parse error)."""
+    has_body = request.headers.get("content-length", "0") != "0" or "transfer-encoding" in request.headers
+    kind = request.headers.get("content-type", "application/json").split(";")[0].strip().lower()
+    if has_body and not (kind == "application/json" or (kind.startswith("application/") and kind.endswith("+json"))):
+        raise ProblemError(Catalog.UNSUPPORTED_MEDIA_TYPE, f"send the body as application/json, not {kind}")
+
+
 def known_parameters_only(request: Request) -> None:
     """Refuse query parameters the operation does not declare, so a typo
     (`?jurisdictions=gb`) is a 400 instead of a silently unfiltered answer.

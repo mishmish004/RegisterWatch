@@ -224,12 +224,20 @@ RESPONSES = {
     400: ("BadRequest", "A parameter is invalid; `errors` names each one",
           [Catalog.INVALID_PARAMETER, Catalog.UNKNOWN_FILTER_COLUMN, Catalog.INVALID_CURSOR]),
     401: ("Unauthenticated", "A read token is configured and the request did not carry it", [Catalog.UNAUTHENTICATED]),
-    404: ("NotFound", "An identifier in the path does not exist",
-          [Catalog.JURISDICTION_NOT_FOUND, Catalog.REGISTER_NOT_FOUND, Catalog.TABLE_NOT_FOUND]),
+    403: ("Forbidden", "The token is valid but cannot do this (a read token on an ingest operation)",
+          [Catalog.FORBIDDEN]),
+    404: ("NotFound", "An identifier in the path or body does not exist",
+          [Catalog.JURISDICTION_NOT_FOUND, Catalog.REGISTER_NOT_FOUND, Catalog.TABLE_NOT_FOUND,
+           Catalog.ROW_NOT_FOUND, Catalog.INGEST_RUN_NOT_FOUND]),
+    409: ("Conflict", "An ingest run is already going; `active_run` links to it", [Catalog.INGEST_IN_PROGRESS]),
+    415: ("UnsupportedMediaType", "The body is not `application/json`", [Catalog.UNSUPPORTED_MEDIA_TYPE]),
+    422: ("IdempotencyKeyReused", "The `Idempotency-Key` was used with a different body",
+          [Catalog.IDEMPOTENCY_KEY_REUSED]),
     429: ("TooManyRequests", "Rate limit exceeded; wait `Retry-After` seconds", [Catalog.RATE_LIMITED]),
     500: ("InternalError", "An unexpected error; quote `request_id` when reporting it", [Catalog.INTERNAL]),
-    503: ("ServiceUnavailable", "The database cannot be reached; retry after `Retry-After` seconds",
-          [Catalog.DATABASE_UNAVAILABLE]),
+    503: ("ServiceUnavailable", "The database cannot be reached (retry after `Retry-After` seconds), "
+                                "or ingest is not configured on this deployment",
+          [Catalog.DATABASE_UNAVAILABLE, Catalog.INGEST_DISABLED]),
 }
 _RETRY = {"Retry-After": {"description": "Seconds to wait before retrying", "schema": {"type": "integer"}}}
 
@@ -252,7 +260,7 @@ def components() -> dict[str, Any]:
         out[name] = {
             "description": description + ". Types: " + ", ".join(f"`{q.slug}`" for q in problems),
             "content": {MEDIA_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}, "example": example}},
-            **({"headers": _RETRY} if status in (429, 503) else {}),
+            **({"headers": _RETRY} if status in (409, 429, 503) else {}),
         }
     return out
 
@@ -260,6 +268,10 @@ def components() -> dict[str, Any]:
 _EXAMPLE_DETAIL = {
     Catalog.INVALID_PARAMETER: "limit: Input should be less than or equal to 1000",
     Catalog.UNAUTHENTICATED: "bad or missing bearer token",
+    Catalog.FORBIDDEN: "a read token cannot start or list ingest runs",
+    Catalog.INGEST_IN_PROGRESS: "an ingest run is already going: /v1/ingest-runs/0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11",
+    Catalog.UNSUPPORTED_MEDIA_TYPE: "send the body as application/json, not text/plain",
+    Catalog.IDEMPOTENCY_KEY_REUSED: "Idempotency-Key 'cron-2026-10-07' was used with a different body",
     Catalog.JURISDICTION_NOT_FOUND: "unknown jurisdiction 'zz'; known: au, be, ca, ...",
     Catalog.RATE_LIMITED: "60 requests per minute for /v1/search; retry in 12 s",
     Catalog.INTERNAL: "something went wrong on our side; quote request_id if you report it",
