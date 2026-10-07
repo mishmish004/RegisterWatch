@@ -62,7 +62,7 @@ Severity: **H** breaks clients or correctness, **M** violates the contract or RE
 | # | Sev | Finding | Evidence |
 |---|---|---|---|
 | F1 | H | **Unstable pagination.** Rows are ordered `ORDER BY 1, 2` on register columns, which are not unique; with `OFFSET`, rows repeat or vanish across pages, and every daily ingest shifts offsets. The `current_*` views do not expose `id` or `row_hash`, so no stable key is available to clients. | `query.py` `rows()`; `db/schema.py` view definition |
-| F2 | H | **Unbounded and unvalidated paging inputs.** `offset` accepts negatives (Postgres raises, the client gets a bare 500). `limit` on `/changes` and `/search` has no maximum; `/changes?limit=10000000` runs per table per register. `limit=-5` silently becomes 0. | `api.py` `get_changes`, `search`; `query.py` `MAX_LIMIT` only in `rows()` |
+| F2 | H | **Unbounded and unvalidated paging inputs.** `offset` accepts negatives (Postgres raises, the client gets a bare 500). `limit` on `/changes` and `/search` has no maximum; `/changes?limit=10000000` runs per table per register, and `/changes?limit=-1` is a 500 (found by schemathesis in Phase 1). `limit=-5` on rows silently becomes 0. | `api.py` `get_changes`, `search`; `query.py` `MAX_LIMIT` only in `rows()` |
 | F3 | H | **Process-local ingest state.** The one-at-a-time guard is a `threading.Lock` and the last result lives in `_last` (a dict in memory). Two replicas, or a restart, mean two concurrent batches and a lost result; `/ingest/last` 404s after every deploy. | `api.py` `_running`, `_last` |
 | F4 | H | **`/changes` silently truncates.** Per table it returns at most `limit` added and `limit` removed rows with no indication more exist, so a mass change looks like a small one. | `query.py` `changes()` |
 | F5 | M | **No security schemes in the spec.** Auth is a plain `authorization` header parameter on each operation; generated clients get a string argument instead of auth. Redocly: `security-defined` ×12. 401s carry no `WWW-Authenticate`. A valid read token on an ingest route gets 401 where 403 is correct. | lint output; `require_token`, `require_read` |
@@ -78,6 +78,7 @@ Severity: **H** breaks clients or correctness, **M** violates the contract or RE
 | F15 | L | Spec hygiene: auto-generated `operationId`s (`get_rows_jurisdictions__code___slug___table__get`), no `servers`, no `license`, `/registers` tagged `health`, no `contact`. | lint; `openapi.json` |
 | F16 | L | Platform: the image runs as root, has no `HEALTHCHECK`, uvicorn runs without `--proxy-headers`, with default keep-alive (5 s, below most load balancer idle timeouts, which causes intermittent 502s), no graceful-shutdown timeout for a running ingest, no response compression for 1000-row pages, no CORS policy. | `Dockerfile`, `cli.py` `cmd_serve` |
 | F17 | L | Timestamps: `since` accepts naive datetimes and assumes UTC silently; responses mix `datetime` objects serialised by FastAPI with ISO strings built by hand in `_last`. | `api.py` |
+| F18 | H | **NUL bytes in text parameters are a 500.** `/search?q=` containing `%00` reaches Postgres, which raises `DataError: text fields cannot contain NUL`. Found by schemathesis in Phase 1. Same path for `filter` values and `q` on rows. | `query.py` `_like`, `rows()` |
 
 Open question, not scheduled (needs a product decision): jurisdiction code `CA`
 is labelled "Canada — Kahnawà:ke". Kahnawà:ke is not Canada's federal regulator,
@@ -199,22 +200,31 @@ Add `registerwatch openapi --write` (CLI) which writes `openapi/v1.yaml` from
 `no-unused-components: error`, `info-license: error`, `security-defined: error`.
 - T1.1.a `uv run registerwatch openapi --write && git diff --exit-code openapi/` → exit 0 (spec is committed and current).
 - T1.1.b `uv run pytest tests/test_contract.py::test_spec_file_matches_app` → passes (same check as T1.1.a, in CI, like the DDL test).
-- T1.1.c `npx @redocly/cli lint openapi/v1.yaml` on today's code → fails with exactly the 13 errors / 4 warnings in 1.1 (records the baseline; this test is "expected to fail" and passes when the count matches).
+- T1.1.c Baseline recorded. With Redocly's built-in `recommended` set (no config, as in 1.1), `openapi/v1.yaml` gives exactly 13 errors and 4 warnings. With the repo's `redocly.yaml` (`scripts/verify/lint.sh`, Redocly pinned at 2.59.0) the same spec gives 17 errors and 0 warnings, because the config raises `operation-4xx-response` and `info-license` to errors. Later phases count against the `lint.sh` number. This test is "expected to fail" and passes when both counts match.
 
 **P1.2 Breaking-change detector.**
 Add `scripts/verify/breaking.sh` running `oasdiff breaking <base> openapi/v1.yaml --fail-on ERR`
-(via `docker run --rm tufin/oasdiff` so nothing is installed on the host), where
-`<base>` is `openapi/v1.yaml` on `origin/main`.
+(via `docker run --rm tufin/oasdiff@sha256:…`, pinned, so nothing is installed on the host), where
+`<base>` is `openapi/v1.yaml` at a git ref (default `origin/main`; `HEAD` for scratch checks).
 - T1.2.a Removing a field from a response schema in a scratch commit → `breaking.sh` exits 1 and names the field.
 - T1.2.b Adding an optional query parameter in a scratch commit → `breaking.sh` exits 0.
 
 **P1.3 Contract test harness.**
 Add `schemathesis` to the dev group and `tests/test_contract.py` that runs
-`schemathesis.from_asgi("/openapi.json", app)` over every read operation with the
-DB faked (existing `client` fixture pattern), checking `not_a_server_error`,
-`status_code_conformance`, `content_type_conformance`, `response_schema_conformance`.
-- T1.3.a `uv run pytest tests/test_contract.py -k schemathesis` runs ≥ 1 example per operation (assert the operation count equals the number of paths × methods).
-- T1.3.b Recorded as baseline: on today's code it reports the negative-`offset` 500 (F2). Evidence line quotes the failing example.
+`schemathesis.openapi.from_asgi("/openapi.json", app)` over every operation, checking
+`not_a_server_error`, `status_code_conformance`, `content_type_conformance`,
+`response_schema_conformance`. Two modes: **pg** (real Postgres with every register's
+fixture rows, when `REGISTERWATCH_TEST_DATABASE_URL` is set) and **fake** (an empty fake
+connection under the real query code). The engine is always faked. Generation is seeded
+and deterministic, and mixes real jurisdiction codes, slugs and tables into path
+parameters so requests reach the query code.
+Known failures are pinned per mode in `tests/contract_baseline.json`. A new failure
+fails the suite, and so does a pinned failure that no longer occurs, so the file
+only shrinks. `REGISTERWATCH_CONTRACT_BASELINE=write` regenerates it and prints one
+failing request per entry. **Every later phase that fixes a finding removes its entries
+from this file in the same commit.**
+- T1.3.a `uv run pytest tests/test_contract.py` (both modes): the conformance test runs for every operation in the spec (the last test asserts the set of operations run equals the spec's paths × methods, 12 today) and passes against the baseline.
+- T1.3.b **[pg]** Recorded as baseline: on today's code it reports the negative-`offset` 500 (F2). Evidence line quotes the failing example. It also reports the `/changes` negative-`limit` 500 (F2) and the NUL-byte `/search` 500 (F18).
 
 Checklist
 - [ ] T1.1.a spec written and committed, diff clean
@@ -305,7 +315,8 @@ generated from it.
 - T3.2.b `GET /v1/registers/gb_ukgc/changes?since=2026-10-01T00:00:00` (naive) → 400; with `Z` → 200.
 - T3.2.c `GET /v1/domains/not_a_host!!` → 400; a 300-char domain → 400.
 - T3.2.d `GET /v1/search?q=a` → 400; `q` of 201 chars → 400.
-- T3.2.e schemathesis `not_a_server_error` passes on every v1 operation (the T1.3.b baseline failure is gone).
+- T3.2.e schemathesis `not_a_server_error` passes on every v1 operation (the T1.3.b baseline failures are gone and their entries are removed from `tests/contract_baseline.json`).
+- T3.2.f **[pg]** `GET /v1/search?q=a%00b` and `filter[status]=a%00b` on rows → 400 `invalid-parameter`, not 500 (F18).
 
 **P3.3 Request id.**
 Middleware: accept a valid `X-Request-Id` (≤ 128 printable chars) or generate a UUIDv7;
@@ -323,6 +334,7 @@ Checklist
 - [ ] T3.2.c domain validated
 - [ ] T3.2.d q length validated
 - [ ] T3.2.e schemathesis finds no 5xx
+- [ ] T3.2.f NUL bytes refused with 400
 - [ ] T3.3.a request id generated
 - [ ] T3.3.b request id echoed or replaced
 - [ ] GATE P3
@@ -725,10 +737,10 @@ catalog; `/v1/problems/{slug}` pages served.
 
 **P12.4 Final contract sign-off.**
 - T12.4.a `npx @redocly/cli lint openapi/v1.yaml` → **0 errors, 0 warnings**.
-- T12.4.b schemathesis over all v1 operations with 200 examples each → no failures.
+- T12.4.b schemathesis over all v1 operations with 200 examples each → no failures, and `tests/contract_baseline.json` is `{}` for both modes.
 - T12.4.c `uv run pytest -q` (with Postgres) and `uv run lint-imports` → green.
 - T12.4.d `npx @stoplight/prism-cli mock openapi/v1.yaml` serves every operation, and `scripts/verify/load.py --base http://127.0.0.1:4010 --smoke` gets 2xx from each (the spec alone is enough to build a client against).
-- T12.4.e Every finding F1–F17 in section 1.3 maps to a struck test ID; record the map in the evidence log.
+- T12.4.e Every finding F1–F18 in section 1.3 maps to a struck test ID; record the map in the evidence log.
 
 Checklist
 - [ ] T12.1.a deprecation headers on legacy routes
@@ -770,6 +782,7 @@ Strike a phase here only after its `GATE` line is struck.
 |---|---|
 | F1 unstable pagination | T4.1.c, T4.2.a, T4.2.b |
 | F2 unbounded paging inputs | T3.2.a, T3.2.e |
+| F18 NUL bytes are a 500 | T3.2.f, T3.2.e |
 | F3 process-local ingest state | T5.2.a, T5.2.b, T5.3.f |
 | F4 truncated change feed | T4.3.b |
 | F5 no security schemes | T6.1.a, T6.2.a–c |

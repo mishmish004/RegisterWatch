@@ -1,0 +1,61 @@
+{
+  "fake": {
+    "GET /check/domain/{domain}": [
+      "status_code_conformance"
+    ],
+    "GET /ingest/last": [
+      "status_code_conformance"
+    ],
+    "GET /jurisdictions/{code}": [
+      "status_code_conformance"
+    ],
+    "GET /jurisdictions/{code}/changes": [
+      "status_code_conformance"
+    ],
+    "GET /jurisdictions/{code}/{slug}/{table}": [
+      "status_code_conformance"
+    ],
+    "GET /search": [
+      "status_code_conformance"
+    ],
+    "GET /status": [
+      "not_a_server_error",
+      "status_code_conformance"
+    ],
+    "POST /ingest/{slug}": [
+      "status_code_conformance"
+    ],
+    "POST /jurisdictions/{code}/ingest": [
+      "status_code_conformance"
+    ]
+  },
+  "pg": {
+    "GET /check/domain/{domain}": [
+      "status_code_conformance"
+    ],
+    "GET /ingest/last": [
+      "status_code_conformance"
+    ],
+    "GET /jurisdictions/{code}": [
+      "status_code_conformance"
+    ],
+    "GET /jurisdictions/{code}/changes": [
+      "not_a_server_error",
+      "status_code_conformance"
+    ],
+    "GET /jurisdictions/{code}/{slug}/{table}": [
+      "not_a_server_error",
+      "status_code_conformance"
+    ],
+    "GET /search": [
+      "not_a_server_error",
+      "status_code_conformance"
+    ],
+    "POST /ingest/{slug}": [
+      "status_code_conformance"
+    ],
+    "POST /jurisdictions/{code}/ingest": [
+      "status_code_conformance"
+    ]
+  }
+}
