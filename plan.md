@@ -227,14 +227,14 @@ from this file in the same commit.**
 - T1.3.b **[pg]** Recorded as baseline: on today's code it reports the negative-`offset` 500 (F2). Evidence line quotes the failing example. It also reports the `/changes` negative-`limit` 500 (F2) and the NUL-byte `/search` 500 (F18).
 
 Checklist
-- [ ] T1.1.a spec written and committed, diff clean
-- [ ] T1.1.b spec-vs-app test passes in pytest
-- [ ] T1.1.c baseline lint recorded: 13 errors, 4 warnings
-- [ ] T1.2.a breaking detector catches a removed field
-- [ ] T1.2.b breaking detector allows an additive change
-- [ ] T1.3.a schemathesis covers every operation
-- [ ] T1.3.b baseline 500 on negative offset recorded
-- [ ] GATE P1
+- [x] ~~T1.1.a spec written and committed, diff clean~~
+- [x] ~~T1.1.b spec-vs-app test passes in pytest~~
+- [x] ~~T1.1.c baseline lint recorded: 13 errors, 4 warnings (17 errors with redocly.yaml)~~
+- [x] ~~T1.2.a breaking detector catches a removed field~~
+- [x] ~~T1.2.b breaking detector allows an additive change~~
+- [x] ~~T1.3.a schemathesis covers every operation~~
+- [x] ~~T1.3.b baseline 500 on negative offset recorded~~
+- [x] ~~GATE P1~~
 
 ---
 
@@ -763,7 +763,7 @@ Checklist
 
 Strike a phase here only after its `GATE` line is struck.
 
-- [ ] Phase 1. Contract baseline and tooling
+- [x] ~~Phase 1. Contract baseline and tooling~~
 - [ ] Phase 2. Versioned routing, operation ids, typed responses
 - [ ] Phase 3. Errors (RFC 9457) and input validation
 - [ ] Phase 4. Stable pagination and a complete change feed

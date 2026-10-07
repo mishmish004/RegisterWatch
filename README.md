@@ -60,7 +60,7 @@ registerwatch check-domain bet365.com                # licensed where, blocked w
 registerwatch ingest gb de pl_mf                     # codes and slugs mix; default all
 registerwatch status [-j ch]                         # exit 1 if any register is stale
 registerwatch serve                                  # the API on :8000 ($PORT)
-registerwatch migrate | registers | ddl
+registerwatch migrate | registers | ddl | openapi
 ```
 
 For example, against the production data on 5 Oct 2026:
@@ -126,6 +126,10 @@ in snapshot *x* is `WHERE first_seen_snapshot_id = x OR removed_snapshot_id = x`
 
 `registerwatch serve` (or the Docker image) runs it; interactive docs at
 `/docs`, the OpenAPI spec at `/openapi.json` — generate a client from that.
+The same spec is committed as `openapi/v1.yaml` (`registerwatch openapi --write`;
+a test fails when it is stale). `scripts/verify/lint.sh` lints it and
+`scripts/verify/breaking.sh` fails on a change that would break clients;
+`tests/test_contract.py` holds the app to it with generated requests.
 Reads are open unless `READ_TOKEN` is set; operations need `INGEST_TOKEN`.
 
 **Reading** — open, or `Authorization: Bearer $READ_TOKEN` when set
