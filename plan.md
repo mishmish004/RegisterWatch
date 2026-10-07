@@ -169,6 +169,7 @@ the API has to serve, secure and rate-limit.)
 | 404 | `jurisdiction-not-found`, `register-not-found`, `table-not-found`, `row-not-found`, `ingest-run-not-found` | unknown identifiers; `detail` lists valid ones where short |
 | 405 | `method-not-allowed` | the path exists, the method does not; `Allow` lists the ones it takes |
 | 409 | `ingest-in-progress` | a run is active; `Retry-After` and the active run's URL in `active_run` |
+| 413 | `content-too-large` | a request body over 64 KiB; the connection is closed after the answer |
 | 415 | `unsupported-media-type` | POST body not `application/json` |
 | 422 | `idempotency-key-reused` | same key, different body |
 | 429 | `rate-limited` | over the limit; `Retry-After` |
@@ -179,7 +180,8 @@ the API has to serve, secure and rate-limit.)
 
 Phase 3 added `not-found` and `method-not-allowed` (v1 answers every error as a problem, so these
 needed types too) and dropped `ambiguous-table`: legacy routes keep FastAPI's `{"detail": ...}`
-bodies until they are removed, and no v1 route can be ambiguous.
+bodies until they are removed, and no v1 route can be ambiguous. Phase 10 added `content-too-large`
+(T10.4.c).
 
 ---
 
@@ -912,6 +914,19 @@ Checklist
 Depends on: P9. Fixes F16 (network). Tests in `scripts/verify/net.sh`, run against
 `$RW_BASE` (local container for **[box]**, staging for **[edge]**).
 
+Corrected (**[edge]**): there is no staging yet; the first deployment is Phase 11's. net.sh runs the
+**[edge]** checks against `RW_EDGE` when it is given, and otherwise against a local stand-in for the
+platform's proxy: Caddy 2 (`scripts/verify/edge/Caddyfile`) in front of the image on a Docker
+network of their own, terminating TLS with a certificate from its own CA, redirecting http to https,
+speaking HTTP/2 to clients and HTTP/1.1 to the app, and replacing `X-Forwarded-For` with the address
+it saw. The app believes `X-Forwarded-*` from Caddy's address only. That checks what is the app's to
+get right behind a TLS proxy: HSTS from the forwarded proto, the client's address, HTTP/2 in front
+of HTTP/1.1, latency with TLS. The proxy's own TLS versions and certificate are the platform's, so
+T11.1.d runs the same checks against the deployment. The **[box]** checks run the image as os.sh
+does, on this host's network, against Postgres loaded with every register's fixture rows and 5,000
+synthetic gb_ukgc licences, so a 1000-row page is 1000 rows. net.sh takes test ids (or their
+prefixes) as arguments to run only those.
+
 **P10.1 Transport security at the edge.**
 TLS terminates at the platform proxy (Railway/Fly/Render). The app adds
 `Strict-Transport-Security: max-age=31536000` when the forwarded proto is https, plus
@@ -923,9 +938,39 @@ TLS terminates at the platform proxy (Railway/Fly/Render). The app adds
 - T10.1.c **[edge]** Certificate chain verifies with the system store: `curl --fail https://$HOST/livez` exits 0 without `-k`.
 - T10.1.d **[box]** Security headers present on a JSON response; `/docs` still renders (HTML 200 with its script loaded).
 
+As built (`http/transport.py`): the headers go on every answer the app makes, not only JSON (errors,
+304s and legacy routes too); uvicorn's own 503 and 408 never reach the app. The documentation pages
+(`/docs`, `/redoc`, `/docs/oauth2-redirect`) get a policy of their own: Swagger UI and Redoc from
+jsDelivr, Redoc's fonts and web worker, the spec from this origin, and the inline scripts by SHA-256
+hashes taken from each page as it is served rather than `'unsafe-inline'`. Redoc writes its styles
+at run time, so styles are allowed inline. Swagger UI's validator badge is off (`validatorUrl:
+None`): it is an image from validator.swagger.io that hands that site the spec's URL. HSTS is sent
+when the scheme uvicorn gives the app is https, which it takes from `X-Forwarded-Proto` only from
+`FORWARDED_ALLOW_IPS` (P9.2).
+Corrected (T10.1.c): "with the system store" holds against a deployment. The stand-in's certificate
+comes from Caddy's own CA, so net.sh trusts the system store plus that root, and records that with
+the system store alone curl refuses it (exit 60).
+Corrected (T10.1.d): "HTML 200 with its script loaded" passes a page the browser then blocks, so
+headless Chromium (Playwright, `scripts/verify/docs_render.mjs`) loads `/docs` and `/redoc`, waits
+for the operations to be drawn and collects `securitypolicyviolation` events: every operation drawn
+and no violation is the pass. With the API's own policy on the docs pages instead, neither draws
+anything. A host that cannot reach jsDelivr sets `RW_DOCS_MIRROR` to the same npm packages on disk
+(the browser applies the policy before any request is made, so this changes nothing it allows).
+
 **P10.2 Client address and proxy trust.**
 - T10.2.a **[box]** With `FORWARDED_ALLOW_IPS=127.0.0.1`, a request carrying `X-Forwarded-For: 203.0.113.9` from 127.0.0.1 is rate-limited under key `203.0.113.9` (exposed in a test-only debug header or the access log).
 - T10.2.b **[box]** The same header from a non-trusted source address is ignored (key = real peer address). Run with `FORWARDED_ALLOW_IPS=10.255.255.1` to simulate.
+- T10.2.c **[edge]** Through the edge, an `X-Forwarded-For` the client sends is not believed: the app's access log has the address the proxy saw. (Added in Phase 10; local stand-in only, as staging's log is the platform's.)
+
+As built: nothing new in the app. Uvicorn's proxy-headers middleware (P9.2) takes the client address
+from `X-Forwarded-For`, its last entry that is not itself a trusted proxy, when the peer is in
+`FORWARDED_ALLOW_IPS`, and the rate limiter keys anonymous requests by that address (P7.2). T10.2.a
+and b run with 5 reads a minute and read the key from the limiter's answers: the sixth request as
+203.0.113.9 is a 429, and after it another forwarded address is either fresh (trusted) or refused
+like everything else from 127.0.0.1 (not trusted). The access log shows the address; no debug header
+was added. The default, 127.0.0.1, trusts nothing on a platform, whose proxy connects from an
+address of its own: the deployment sets `FORWARDED_ALLOW_IPS` to it (README), or every anonymous
+client shares one bucket and no answer carries HSTS.
 
 **P10.3 Connection reuse and timeouts.**
 - T10.3.a **[box]** `curl -sv $RW_BASE/livez $RW_BASE/livez 2>&1 | grep -c 'Re-using existing connection'` → ≥ 1 (keep-alive works).
@@ -933,17 +978,55 @@ TLS terminates at the platform proxy (Railway/Fly/Render). The app adds
 - T10.3.c **[box]** Slowloris guard: a client that sends headers one byte per second is disconnected within `h11_max_incomplete_event_size`/timeout bounds (≤ 30 s) and other clients are unaffected (concurrent `/livez` stays < 50 ms).
 - T10.3.d **[edge]** 200 sequential requests over one HTTP/2 connection (`curl --http2 -w '%{http_version}'`) report `2` and no connection resets.
 
+As built (`http/server.py`, uvicorn's httptools protocol with bounds added, which `serve` passes as
+`http=`): uvicorn puts no clock on a request's arrival. Its keep-alive timer is armed only after an
+answer, and any byte received cancels it, so a connection that never sends, or sends its head a byte
+a second, is held for as long as the client likes. Now a connection that has sent nothing is closed
+after the keep-alive (75 s); a request has 10 s from its first byte (`REQUEST_TIMEOUT_S`) to arrive
+whole, its head and any body the route reads, else a plain-text 408 and the connection closes; a
+head over 64 KiB is a 431; and a body still arriving after the answer went out is cut off at the
+same 10 s. The clock runs per request, so a keep-alive connection that sends whole requests now and
+then is never cut off. Whenever the server answers before reading all the client is sending (these,
+and the 413 of P10.4), it shuts its sending side and reads, discarding, for up to 2 s before closing
+(RFC 9112 §9.6): closing a socket with unread data makes the kernel send a reset, which destroys the
+answer before the client reads it. Without the lingering close, the 2 MB upload in
+`tests/test_server.py` read a reset in 3 runs of 3, and the oversized head in 1 of 3.
+Corrected (T10.3.b): also checks the other side of the bound: after 80 s idle the server has closed
+the connection. Corrected (T10.3.c): `h11_max_incomplete_event_size` is h11's, and the server runs
+httptools; the bound is the 10 s request clock. net.sh runs 20 such clients at once.
+
 **P10.4 Payload efficiency.**
 `GZipMiddleware(minimum_size=1024)`.
 - T10.4.a **[box]** `curl -s -H 'Accept-Encoding: gzip' -o /dev/null -w '%{size_download}'` vs without, on a 1000-row page: compressed ≤ 25 % of uncompressed. Record both numbers.
 - T10.4.b **[box]** Responses < 1 KB are not compressed (no `content-encoding`).
 - T10.4.c **[box]** `POST /v1/ingest-runs` with a 2 MB body → 413 problem, connection not held open.
 
+As built: `CompressionMiddleware` is Starlette's gzip at level 6 rather than its default 9: on a
+1000-row page (325 KB) level 6 takes 2.5 ms for 8.9 %, level 9 takes 10 ms for 8.6 %. Only the request
+id is outside it, so errors and 429s are compressed too. It adds `Accept-Encoding` to the `Vary`
+the caching middleware set, rather than a second `Vary` field. ETags are weak and the same for both
+encodings, which a weak ETag allows. Every request body is capped at 64 KiB (`MAX_BODY_BYTES`; the
+largest valid one, every register named, is under 1 KiB). Over it is a 413 `content-too-large`
+problem (legacy routes: `{"detail"}`) with `Connection: close`. A declared `Content-Length` over the
+cap is answered before any of the body is read, so a client waiting on `Expect: 100-continue` never
+sends it; a chunked body is counted as it is read. The 413 is in the catalog (2.5), in
+docs/problems.md, and in `createIngestRun`'s documented answers.
+
 **P10.5 CORS.**
 Default: no CORS (server-to-server API). Optional `CORS_ALLOW_ORIGINS` list enables
 `GET` only, no credentials.
 - T10.5.a **[box]** With CORS unset, a preflight from `https://evil.test` gets no `access-control-allow-origin`.
 - T10.5.b **[box]** With `CORS_ALLOW_ORIGINS=https://app.test`, preflight `GET` from that origin is allowed, `POST` is not.
+
+As built: `CorsMiddleware` is Starlette's CORS behind `CORS_ALLOW_ORIGINS` (comma-separated origins,
+each `scheme://host[:port]`, checked at startup), read per request so a test can set it. Unset, it
+does nothing: no CORS header on any answer, and a preflight is the route's own 405. Set, it allows
+those origins `GET` and `HEAD` without credentials (no `Access-Control-Allow-Credentials`, so the
+browser sends no cookies), the request headers `Authorization`, `If-None-Match` and `X-Request-Id`,
+and exposes `ETag`, `Link`, `RateLimit`, `RateLimit-Policy`, `Retry-After` and `X-Request-Id`.
+Preflights are cached for 10 minutes and answered outside the rate limit. A preflight for `POST` is
+a 400 that does not list it, one from another origin a 400 without `Access-Control-Allow-Origin`,
+and a `POST` sent without a preflight gets no CORS headers, so the page cannot read its answer.
 
 **P10.6 Load and latency budget.**
 `scripts/verify/load.py` (stdlib + httpx, already a dependency): open-loop at a fixed
@@ -952,6 +1035,32 @@ rate, reports p50/p95/p99 and error counts as one JSON line.
 - T10.6.b **[box][pg]** 3× the limit on one token: only 429s beyond the bucket, 0 × 5xx, and `/readyz` stays 200 throughout.
 - T10.6.c **[edge]** 20 rps for 60 s against staging from outside the platform: p95 < 400 ms including TLS; record numbers.
 
+As built: `load.py` sends on a fixed schedule whatever the server does (open loop: each latency
+counts from when the request was due, so a server falling behind shows as latency, not as a lower
+rate), with at most 64 requests in flight, `--mix` for weighted paths and per-class numbers,
+`--clients` for client addresses and `--cacert` for the stand-in's CA. Its exit is 1 on any
+transport error or 5xx.
+Corrected (T10.6.a): "within rate limits by using 10 tokens" cannot be done. The server issues one
+read token, and the limits are per token and per class, with domain checks counted as searches
+(60 a minute): 10 tokens at 30 searches and domain checks a second would be 180 a minute each. The
+load comes from 40 client addresses instead (`X-Forwarded-For` from 127.0.0.1, which the server
+trusts), 2.5 requests a second each: 105 reads and 45 searches a minute per address, under both
+limits, so every request goes through the limiter and none is refused. The mix: 70 % gb_ukgc
+licence pages (100 rows, the default), 20 % two domain checks, 10 % three searches.
+Corrected (T10.6.a): one worker cannot meet the budget. On this host it kept up with the mix at 60 and
+80 rps for 60 s (p95 102 and 62 ms, p99 441 and 116 ms), and at 100 rps fell behind on its one CPU:
+over the 120 s, p50 3.1 s and p95 4.7 s, every class alike. So T10.6.a runs with
+`WEB_CONCURRENCY=2` (this host has 4 CPUs). The default stays 1, as a small instance has one CPU;
+the README says what one and two workers serve. This also answers Phase 9's 1000-row load: with two workers, 50 rps of 1000-row pages for 120 s
+is p50 27, p95 59, p99 91 ms (one worker: p50 16.6 s), and one worker keeps up with 30 a second
+(p95 74 ms), gzip included, which `load.py`'s client asks for.
+Corrected (T10.6.b): run on one worker, since each worker keeps its own buckets (P7.2) and with two
+the one token's 600 a minute would be up to 1,200. 30 requests a second on the read token for 60 s
+is 600 at once and then 10 a second: about 1,200 × 200, the rest 429, with `/readyz` asked every
+0.5 s throughout.
+Corrected (T10.6.c): against the local stand-in, with the read and search limits raised to 6,000 a
+minute, since every request through it comes from one address (the Docker gateway).
+
 Checklist
 - [ ] T10.1.a TLS ≥ 1.2 only
 - [ ] T10.1.b HTTP redirects to HTTPS, HSTS set
@@ -959,6 +1068,7 @@ Checklist
 - [ ] T10.1.d security headers present, docs render
 - [ ] T10.2.a trusted proxy address honoured
 - [ ] T10.2.b untrusted forwarded header ignored
+- [ ] T10.2.c client's forwarded header not believed through the edge
 - [ ] T10.3.a keep-alive reuse
 - [ ] T10.3.b idle connection survives 60 s
 - [ ] T10.3.c slow clients cut off, others fine
@@ -989,11 +1099,13 @@ a double-fire of the same slot creates one run. Signature unchanged.
 - T11.1.a `tests/test_schema.py::test_cron_migration_targets_v1` parses the SQL and asserts the URL contains `/v1/ingest-runs`, an `Idempotency-Key` header is sent, and `/ingest/` (legacy) no longer appears.
 - T11.1.b **[edge]** In the Supabase SQL editor: `select registerwatch_private.trigger_ingest('pl_mf');` then `select status_code from net._http_response order by created desc limit 1;` → `202`. Run it twice within the hour → the second returns `200` and `GET /v1/ingest-runs` shows one run.
 - T11.1.c **[edge]** After the next 06:00 UTC slot: `select status, return_message from cron.job_run_details order by start_time desc limit 1` → `succeeded`, and `/v1/status` shows every register fresh.
+- T11.1.d **[edge]** Phase 10's edge checks, run against a local stand-in for the platform's proxy, pass against the deployment: `RW_EDGE=https://<host> scripts/verify/net.sh T10.1.a T10.1.b T10.1.c T10.3.d`, and T10.6.c against staging, never production. (Added in Phase 10.)
 
 Checklist
 - [ ] T11.1.a cron SQL targets v1 with an idempotency key
 - [ ] T11.1.b manual trigger creates exactly one run
 - [ ] T11.1.c scheduled slot succeeded end to end
+- [ ] T11.1.d Phase 10's edge checks pass against the deployment
 - [ ] GATE P11
 
 ---

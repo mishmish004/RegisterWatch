@@ -39,7 +39,7 @@ from registerwatch import __version__, jurisdictions, query, registers
 from registerwatch.config import settings
 from registerwatch.db.engine import close_pools, thread_limit, tx
 from registerwatch.db.repos import snapshots as repo
-from registerwatch.http import caching, deps, guards, openapi, probes, problems, ratelimit, request_id, v1
+from registerwatch.http import caching, deps, guards, openapi, probes, problems, ratelimit, request_id, transport, v1
 from registerwatch.ingest import engine, runs
 from registerwatch.storage.blobs import make_store
 
@@ -83,6 +83,9 @@ app = FastAPI(
     contact={"name": "registerwatch", "url": "https://github.com/mishmish004/RegisterWatch"},
     # The repository has no LICENSE file, so no rights are granted beyond reading the code.
     license_info={"name": "All rights reserved", "url": "https://choosealicense.com/no-permission/"},
+    # Swagger UI would send the spec's URL to validator.swagger.io for a badge;
+    # the documentation's Content-Security-Policy would block the image anyway.
+    swagger_ui_parameters={"validatorUrl": None},
 )
 app.include_router(v1.router)
 app.include_router(probes.router)
@@ -93,10 +96,17 @@ caching.install(app)
 # before anything can answer, and every answer, a 500 included, carries it.
 # Rate limiting wraps everything that answers a request (a 500 too, so it carries
 # the client's RateLimit fields) and is inside no-store, so an ingest 429 is not stored.
+# CORS answers preflights itself, inside the security headers and outside the
+# rate limit. Compression wraps them all, so the security headers read the
+# documentation pages before they are compressed (plan.md P10.1, P10.4, P10.5).
 app.add_middleware(guards.NulGuardMiddleware)
+app.add_middleware(guards.BodyLimitMiddleware)
 app.add_middleware(problems.UnhandledErrorMiddleware)
 app.add_middleware(ratelimit.RateLimitMiddleware)
 app.add_middleware(caching.NoStoreMiddleware)
+app.add_middleware(transport.CorsMiddleware)
+app.add_middleware(transport.SecurityHeadersMiddleware)
+app.add_middleware(transport.CompressionMiddleware)
 app.add_middleware(request_id.RequestIdMiddleware)
 
 # Postgres' bigint: the most a legacy LIMIT or OFFSET can be without a 500.

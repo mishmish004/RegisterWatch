@@ -5,7 +5,14 @@ the database only to fail there, as a 500 (F18). Every path, legacy included,
 refuses it up front with a 400 that names the parameter: a problem under /v1,
 FastAPI's `{"detail": ...}` shape elsewhere.
 
-A plain ASGI middleware, like the request id, so background tasks are untouched.
+No request needs a body over MAX_BODY_BYTES (an ingest run's is a few hundred
+bytes), and nothing else bounds one (plan.md P10.4). A body declared larger is a
+413 before anything reads it: the client that waits for `100 Continue` never
+sends it, and the answer closes the connection rather than read the rest. A
+body that turns out larger as it arrives (chunked, no length) is a 413 at the
+byte that crosses the line.
+
+Plain ASGI middlewares, like the request id, so background tasks are untouched.
 """
 
 from __future__ import annotations
@@ -15,8 +22,12 @@ from urllib.parse import parse_qsl
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException
 
 from registerwatch.http import problems
+
+MAX_BODY_BYTES = 64 * 1024
+_CLOSE = {"Connection": "close"}
 
 
 def nul_field(scope: dict) -> tuple[str, str] | None:
@@ -48,3 +59,39 @@ class NulGuardMiddleware:
         else:
             answer = JSONResponse({"detail": f"{field}: {message}"}, status_code=400)
         await answer(scope, receive, send)
+
+
+class BodyLimitMiddleware:
+    def __init__(self, app: Any) -> None:
+        self.app = app
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        declared = next((v for k, v in scope.get("headers", []) if k == b"content-length"), None)
+        if declared is not None and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+            await too_large(Request(scope))(scope, receive, send)
+            return
+        seen = 0
+
+        async def counted() -> dict:
+            nonlocal seen
+            message = await receive()
+            seen += len(message.get("body", b""))
+            if seen > MAX_BODY_BYTES:
+                # An HTTPException, so FastAPI passes it on rather than make it a parse error.
+                raise HTTPException(413, too_large_detail(), headers=_CLOSE)
+            return message
+
+        await self.app(scope, counted, send)
+
+
+def too_large_detail() -> str:
+    return f"the request body is over {MAX_BODY_BYTES} bytes; no operation takes one that large"
+
+
+def too_large(request: Request) -> JSONResponse:
+    if problems.is_v1(request):
+        return problems.response(problems.Catalog.CONTENT_TOO_LARGE, too_large_detail(), request, headers=_CLOSE)
+    return JSONResponse({"detail": too_large_detail()}, status_code=413, headers=_CLOSE)

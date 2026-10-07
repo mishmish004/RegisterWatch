@@ -159,9 +159,9 @@ def test_schema_examples_validate_against_their_schemas():
 # lookup key: any hostname has a status, possibly empty.
 RESOURCE_IDS = {"code", "slug", "table", "id"}
 # Ingest operations take the ingest token, so a read token is a 403; creating a
-# run can also find its registers missing, a run going, a non-JSON body, or a
-# reused Idempotency-Key.
-INGEST_ERRORS = {"createIngestRun": {"403", "404", "409", "415", "422"},
+# run can also find its registers missing, a run going, a body over 64 KiB, a
+# non-JSON body, or a reused Idempotency-Key.
+INGEST_ERRORS = {"createIngestRun": {"403", "404", "409", "413", "415", "422"},
                  "listIngestRuns": {"403"}, "getIngestRun": {"403"}}
 # Operations whose queries run under the read statement timeout and would rather
 # fail than degrade: a cancelled one is a 504 (plan.md P7.3). The rest read no

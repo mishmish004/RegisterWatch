@@ -862,6 +862,8 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/ContentTooLarge'
         '415':
           $ref: '#/components/responses/UnsupportedMediaType'
         '422':
@@ -3015,6 +3017,23 @@ components:
           description: Seconds to wait before retrying
           schema:
             type: integer
+        RateLimit-Policy: *id003
+        RateLimit: *id004
+    ContentTooLarge:
+      description: 'The request body is over 64 KiB; the connection is closed after this answer. Types:
+        `content-too-large`'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            type: https://github.com/mishmish004/RegisterWatch/blob/main/docs/problems.md#content-too-large
+            title: Request body too large
+            status: 413
+            detail: the request body is over 65536 bytes; no operation takes one that large
+            instance: /v1/registers/gb_ukgc/tables/licences/rows
+            request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
+      headers:
         RateLimit-Policy: *id003
         RateLimit: *id004
     UnsupportedMediaType:

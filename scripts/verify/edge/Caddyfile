@@ -1,0 +1,22 @@
+# A local stand-in for the platform's TLS proxy (plan.md Phase 10), which
+# scripts/verify/net.sh starts in front of the image when no staging URL is
+# given: TLS 1.2 and 1.3 with a certificate from Caddy's own CA, plain HTTP
+# redirected to HTTPS, HTTP/2 to clients, and HTTP/1.1 to the app with
+# X-Forwarded-For (the real client; whatever the client sent there is
+# replaced) and X-Forwarded-Proto, as Railway, Fly and Render's proxies do.
+{
+	skip_install_trust
+	admin off
+}
+
+{$RW_EDGE_HOST} {
+	tls internal
+	reverse_proxy {$RW_EDGE_UPSTREAM} {
+		transport http {
+			# Under the app's 75 s keep-alive, so the proxy, not the app, closes an
+			# idle connection between them (an app closing first races the proxy's
+			# next request on it: an intermittent 502).
+			keepalive 60s
+		}
+	}
+}

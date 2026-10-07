@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import pathlib
+import re
 from functools import lru_cache
 from typing import Literal
 
@@ -16,6 +17,8 @@ PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[2]
 # from any directory and a container with real env vars resolve the same way;
 # a missing file is simply skipped.
 ENV_FILES = (PROJECT_ROOT / ".env", pathlib.Path(".env"))
+
+_ORIGIN = re.compile(r"^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$")
 
 # Bearer tokens: 32 characters is ~190 bits from token_urlsafe, out of guessing range.
 MIN_TOKEN_LENGTH = 32
@@ -116,6 +119,10 @@ class Settings(BaseSettings):
     # when the connection is from one of these. Comma-separated addresses or
     # networks, or `*` when nothing but the platform's proxy can reach the app.
     forwarded_allow_ips: str = "127.0.0.1"
+    # Browser origins allowed to read the API with GET (plan.md P10.5), comma-
+    # separated (`https://app.example`), or `*` for any. Empty: no CORS at all,
+    # which suits a server-to-server API. Never with credentials.
+    cors_allow_origins: str = ""
 
     # Test only (plan.md T9.3.b): every register of a v1 ingest run sleeps
     # 20 s and records a skip instead of fetching, so a stop can land mid-run
@@ -134,6 +141,21 @@ class Settings(BaseSettings):
             raise ValueError(f"must be at least {MIN_TOKEN_LENGTH} characters (got {len(v)}); "
                              "use secrets.token_urlsafe(32)")
         return v
+
+    @field_validator("cors_allow_origins")
+    @classmethod
+    def _origins(cls, v: str) -> str:
+        # An origin is scheme://host[:port] and nothing else: "https://app.example/"
+        # (a trailing slash) never equals the Origin a browser sends, so it would
+        # silently allow nothing.
+        for origin in (o.strip() for o in v.split(",") if o.strip()):
+            if origin != "*" and not _ORIGIN.match(origin):
+                raise ValueError(f"{origin!r} is not an origin: scheme://host[:port], no path or trailing slash")
+        return v
+
+    @property
+    def cors_origins(self) -> tuple[str, ...]:
+        return tuple(o.strip() for o in self.cors_allow_origins.split(",") if o.strip())
 
     @field_validator("s3_endpoint_url", "database_url", "user_agent")
     @classmethod

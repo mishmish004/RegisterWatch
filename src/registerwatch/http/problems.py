@@ -48,6 +48,7 @@ class Catalog(enum.Enum):
     INGEST_RUN_NOT_FOUND = (404, "Unknown ingest run")
     METHOD_NOT_ALLOWED = (405, "Method not allowed")
     INGEST_IN_PROGRESS = (409, "An ingest is already running")
+    CONTENT_TOO_LARGE = (413, "Request body too large")
     UNSUPPORTED_MEDIA_TYPE = (415, "Unsupported media type")
     IDEMPOTENCY_KEY_REUSED = (422, "Idempotency key reused with a different request")
     RATE_LIMITED = (429, "Too many requests")
@@ -126,7 +127,8 @@ def is_v1(request: Request) -> bool:
 # --- handlers ----------------------------------------------------------------------
 
 _BY_STATUS = {400: Catalog.INVALID_PARAMETER, 401: Catalog.UNAUTHENTICATED, 403: Catalog.FORBIDDEN,
-              404: Catalog.NOT_FOUND, 405: Catalog.METHOD_NOT_ALLOWED, 415: Catalog.UNSUPPORTED_MEDIA_TYPE,
+              404: Catalog.NOT_FOUND, 405: Catalog.METHOD_NOT_ALLOWED, 413: Catalog.CONTENT_TOO_LARGE,
+              415: Catalog.UNSUPPORTED_MEDIA_TYPE,
               429: Catalog.RATE_LIMITED, 503: Catalog.DATABASE_UNAVAILABLE}
 
 
@@ -235,6 +237,8 @@ RESPONSES = {
           [Catalog.JURISDICTION_NOT_FOUND, Catalog.REGISTER_NOT_FOUND, Catalog.TABLE_NOT_FOUND,
            Catalog.ROW_NOT_FOUND, Catalog.INGEST_RUN_NOT_FOUND]),
     409: ("Conflict", "An ingest run is already going; `active_run` links to it", [Catalog.INGEST_IN_PROGRESS]),
+    413: ("ContentTooLarge", "The request body is over 64 KiB; the connection is closed after this answer",
+          [Catalog.CONTENT_TOO_LARGE]),
     415: ("UnsupportedMediaType", "The body is not `application/json`", [Catalog.UNSUPPORTED_MEDIA_TYPE]),
     422: ("IdempotencyKeyReused", "The `Idempotency-Key` was used with a different body",
           [Catalog.IDEMPOTENCY_KEY_REUSED]),
@@ -281,6 +285,7 @@ _EXAMPLE_DETAIL = {
     Catalog.UNAUTHENTICATED: "the bearer token is not valid here",
     Catalog.FORBIDDEN: "a read token cannot start or list ingest runs",
     Catalog.INGEST_IN_PROGRESS: "an ingest run is already going: /v1/ingest-runs/0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11",
+    Catalog.CONTENT_TOO_LARGE: "the request body is over 65536 bytes; no operation takes one that large",
     Catalog.UNSUPPORTED_MEDIA_TYPE: "send the body as application/json, not text/plain",
     Catalog.IDEMPOTENCY_KEY_REUSED: "Idempotency-Key 'cron-2026-10-07' was used with a different body",
     Catalog.JURISDICTION_NOT_FOUND: "unknown jurisdiction 'zz'; known: au, be, ca, ...",

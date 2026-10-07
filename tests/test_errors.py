@@ -81,6 +81,8 @@ def _trigger(entry: Catalog, client, monkeypatch) -> tuple[str, str, dict]:
             monkeypatch.setattr(runs, "acquire", lambda: None)
             monkeypatch.setattr(runs.repo, "active", lambda conn: {"id": RUN_ID})
             return "POST", RUNS, {"headers": INGEST}
+        case Catalog.CONTENT_TOO_LARGE:
+            return "POST", RUNS, {"headers": INGEST, "json": {"registers": ["gb_ukgc"] * 8000}}
         case Catalog.UNSUPPORTED_MEDIA_TYPE:
             return "POST", RUNS, {"headers": {**INGEST, "Content-Type": "text/plain"}, "content": "gb_ukgc"}
         case Catalog.IDEMPOTENCY_KEY_REUSED:
@@ -145,6 +147,8 @@ def test_every_catalog_entry_is_a_problem(entry, client, monkeypatch):
         assert r.headers["retry-after"] == "5"
     if entry is Catalog.INGEST_IN_PROGRESS:
         assert r.headers["retry-after"] == "60" and body["active_run"] == f"{RUNS}/{RUN_ID}"
+    if entry is Catalog.CONTENT_TOO_LARGE:
+        assert r.headers["connection"] == "close"
     if entry is Catalog.RATE_LIMITED:
         assert int(r.headers["retry-after"]) >= 1 and r.headers["ratelimit"].startswith('"read";r=0;')
     if entry.status == 400:

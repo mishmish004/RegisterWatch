@@ -98,6 +98,7 @@ def test_serve_defaults(served):
     assert kw["timeout_graceful_shutdown"] == 65.0  # SHUTDOWN_GRACE_S 60 + 5
     assert kw["proxy_headers"] is True and kw["forwarded_allow_ips"] == "127.0.0.1"
     assert kw["host"] == "0.0.0.0" and kw["port"] == 8000
+    assert kw["http"] == "registerwatch.http.server:BoundedHttpToolsProtocol"  # P10.3's request bounds
 
 
 def test_serve_reads_the_environment(served):

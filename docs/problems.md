@@ -86,6 +86,12 @@ the known codes; `listJurisdictions` returns them too.
 **409.** An ingest run is already active; only one runs at a time. Wait for it to finish
 (`Retry-After`) and look at the active run before starting another.
 
+## content-too-large
+
+**413.** The request body is over 64 KiB; no operation takes one that large (an ingest run's
+body is a few hundred bytes). A body declared that large is refused before any of it is read,
+and the server closes the connection after this answer.
+
 ## unsupported-media-type
 
 **415.** The request body is not `application/json`.

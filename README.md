@@ -243,6 +243,36 @@ platform's stop timeout (Docker's is 10 s, Kubernetes' 30 s) more than
 `SHUTDOWN_GRACE_S + 10`, or lower `SHUTDOWN_GRACE_S` to fit it.
 `scripts/verify/os.sh` checks all of this against a built image.
 
+## On the network
+
+TLS, the certificate, the redirect from http and HTTP/2 are the platform proxy's:
+Railway, Fly and Render all terminate TLS in front of the container. The app has
+to know which proxy to believe, so set `FORWARDED_ALLOW_IPS` to the addresses it
+connects from (or `*` when nothing else can reach the container). Until then
+every anonymous client shares the proxy's rate-limit bucket, and no answer
+carries `Strict-Transport-Security`, which goes only on requests that came in
+over https.
+
+| | |
+|---|---|
+| security headers | every answer has `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` and `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'`. `/docs` and `/redoc` get a policy that lets Swagger UI and Redoc load from jsDelivr, and nothing else |
+| `Strict-Transport-Security: max-age=31536000` | on answers to https requests (`X-Forwarded-Proto` from a trusted proxy) |
+| gzip | bodies of 1 KiB and more, for clients that send `Accept-Encoding: gzip`: a 1000-row page goes from 325 KB to 29 KB |
+| slow clients | a request has 10 s from its first byte to arrive whole, else a 408 and the connection closes. A connection that sends nothing is closed after the keep-alive (75 s) |
+| size limits | a request head over 64 KiB is a 431. A body over 64 KiB is a 413 `content-too-large`, answered before the body is read when its length is declared |
+| CORS | off: the API is for servers. `CORS_ALLOW_ORIGINS` (comma-separated, `scheme://host[:port]`) lets pages from those origins read with `GET`, without cookies |
+
+Sizing: a worker is one process on one CPU. One worker serves the load
+`net.sh` uses (mostly 100-row pages, some domain checks and searches) up to
+about 80 requests a second (p95 62 ms); at 100 its answers queue for seconds.
+`WEB_CONCURRENCY=2` on two CPUs serves 100 a second at p95 70 ms, and 50
+1000-row pages a second at p95 59 ms. Each worker keeps its own rate-limit
+buckets, so with two a client may get up to twice its quota.
+
+`scripts/verify/net.sh` checks all of this against a built image, directly and
+through a TLS proxy: the deployment's (`RW_EDGE=https://your-host`), or without
+one a local Caddy standing in for it.
+
 ## Daily schedule (Supabase)
 
 Supabase cannot run Python, so the schedule lives in Supabase and the work in

@@ -273,6 +273,8 @@ def cmd_openapi(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
+    from registerwatch.http import server
+
     s = settings()
     raise_open_file_limit()
     # Uvicorn re-raises the signal it stopped on once it has stopped, for the
@@ -295,6 +297,9 @@ def cmd_serve(args: argparse.Namespace) -> int:
             limit_concurrency=args.limit_concurrency,
             proxy_headers=True,
             forwarded_allow_ips=args.forwarded_allow_ips or s.forwarded_allow_ips,
+            # uvicorn's httptools protocol, plus bounds on how long a request may
+            # take to arrive and how large its head may be (plan.md P10.3).
+            http=server.PROTOCOL,
         )
     finally:
         signal.signal(signal.SIGTERM, previous)
