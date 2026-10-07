@@ -38,6 +38,7 @@ from schemathesis.core.failures import Failure, FailureGroup
 
 from registerwatch import api, jurisdictions
 from registerwatch.cli import OPENAPI_SPEC, openapi_yaml
+from registerwatch.http import deps
 from registerwatch.ingest.engine import IngestResult
 from registerwatch.registers import REGISTRY, all_registers
 from tests.test_postgres import DSN, db, loaded  # noqa: F401 — fixtures, used in pg mode
@@ -55,6 +56,72 @@ SEED = 20261007
 def test_spec_file_matches_app():
     assert (ROOT / OPENAPI_SPEC).read_text() == openapi_yaml(), \
         f"{OPENAPI_SPEC} is stale: run `uv run registerwatch openapi --write`"
+
+
+# --- the v1 spec's own rules (plan.md Phase 2) ----------------------------------------
+
+V1_TAGS = {"jurisdictions", "registers", "rows", "changes", "search", "domains", "ingest", "operations"}
+
+
+def _operations(prefix: str = "") -> list[tuple[str, str, dict]]:
+    spec = api.app.openapi()
+    return [(m.upper(), p, op) for p, item in spec["paths"].items() if p.startswith(prefix)
+            for m, op in item.items()]
+
+
+def _resolve(schema: dict) -> dict:
+    ref = schema.get("$ref", "")
+    return api.app.openapi()["components"]["schemas"][ref.rsplit("/", 1)[1]] if ref else schema
+
+
+def _ok_responses(op: dict):
+    for status, resp in op["responses"].items():
+        if status.startswith("2"):
+            yield status, resp, resp.get("content", {}).get("application/json", {})
+
+
+def test_operation_ids_are_explicit():
+    """v1 ids are chosen, not generated; legacy ids stay as they were for existing clients."""
+    v1 = [op["operationId"] for _, _, op in _operations("/v1/")]
+    every = [op["operationId"] for _, _, op in _operations()]
+    assert v1 and not [i for i in v1 if "__" in i or "_" in i], v1
+    assert len(every) == len(set(every))
+
+
+def test_every_v1_operation_has_one_known_tag():
+    bad = {f"{m} {p}": op.get("tags") for m, p, op in _operations("/v1/")
+           if len(op.get("tags", [])) != 1 or op["tags"][0] not in V1_TAGS}
+    assert not bad
+
+
+def test_no_untyped_2xx_responses_in_v1():
+    untyped = []
+    for m, p, op in _operations("/v1/"):
+        for status, _, media in _ok_responses(op):
+            schema = _resolve(media.get("schema", {}))
+            if not schema.get("properties") and schema.get("type") in (None, "object"):
+                untyped.append(f"{m} {p} {status}")
+    assert not untyped
+
+
+def test_every_v1_2xx_response_has_an_example():
+    missing = []
+    for m, p, op in _operations("/v1/"):
+        for status, _, media in _ok_responses(op):
+            if not (media.get("example") or media.get("examples") or _resolve(media.get("schema", {})).get("examples")):
+                missing.append(f"{m} {p} {status}")
+    assert not missing
+
+
+def test_schema_examples_validate_against_their_schemas():
+    """FastAPI strips nulls from examples; http/openapi.py puts them back. Check it held."""
+    from registerwatch.http import models
+
+    for name, schema in api.app.openapi()["components"]["schemas"].items():
+        model = getattr(models, name, None)
+        for example in schema.get("examples", []):
+            assert model is not None, name
+            model.model_validate(example)
 
 
 # --- the app, wired for generated traffic ------------------------------------------
@@ -83,12 +150,12 @@ def app_under_test(request):
 
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(api, "settings", lambda: cfg)
+        mp.setattr(deps, "settings", lambda: cfg)
         mp.setattr(api, "make_store", lambda: object())
         mp.setattr(api.engine, "ingest_many", fake_many)
-        if MODE == "pg":
-            mp.setattr(api, "tx", request.getfixturevalue("loaded"))
-        else:
-            mp.setattr(api, "tx", lambda: contextlib.nullcontext(_FakeConn()))
+        tx = request.getfixturevalue("loaded") if MODE == "pg" else (lambda: contextlib.nullcontext(_FakeConn()))
+        mp.setattr(api, "tx", tx)    # legacy routes
+        mp.setattr(deps, "tx", tx)   # v1
         api._last.clear()
         yield api.app
     if api._running.locked():
@@ -108,6 +175,7 @@ def api_schema(app_under_test):
     codes = [c.lower() for c in jurisdictions.by_code()]
     tables = [(jurisdictions.normalise(r.country).lower(), r.slug, t.name)
               for r in all_registers() for t in r.tables]
+    slug_tables = [{"slug": s, "table": t} for _, s, t in tables]
     real = {
         "code": st.sampled_from(codes),
         "slug": st.sampled_from([*REGISTRY, "all"]),
@@ -119,6 +187,8 @@ def api_schema(app_under_test):
         keys = set(path_parameters or {})
         if {"code", "slug", "table"} <= keys:
             choice = st.sampled_from(tables).map(lambda t: dict(zip(("code", "slug", "table"), t)))
+        elif keys == {"slug", "table"}:
+            choice = st.sampled_from(slug_tables)
         elif keys and keys <= set(real):
             choice = st.fixed_dictionaries({k: real[k] for k in keys})
         else:

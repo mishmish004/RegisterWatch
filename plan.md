@@ -243,11 +243,21 @@ Checklist
 Depends on: P1. Fixes F6, F8 (paths), F9, F11, F15.
 
 **P2.1 `/v1` router and module split.**
-Move handlers into `src/registerwatch/http/` (`v1/jurisdictions.py`, `v1/registers.py`,
-`v1/search.py`, `v1/domains.py`, `v1/ingest_runs.py`, `v1/status.py`, `probes.py`,
-`legacy.py`), mounted from `api.py`. Old routes move to `legacy.py` unchanged.
-Add an import-linter contract: `registerwatch.http.v1` may not import `registerwatch.http.legacy`.
-- T2.1.a `uv run pytest tests/test_api.py` (existing tests, unchanged) passes against the legacy routes.
+New package `src/registerwatch/http/`: `deps.py` (transaction, read check, identifier
+lookup), `models.py` (every v1 schema), `cursor.py` (opaque cursors), `openapi.py`, and
+`v1/{jurisdictions,registers,search,domains}.py`, mounted from `api.py` at `/v1`.
+The legacy routes stay in `api.py` byte-for-byte: `tests/test_api.py` patches names
+on that module, so moving them would have meant changing the tests that prove they are
+unchanged. Phase 12 deletes them from there. Modules for changes and snapshots (P4),
+ingest runs (P5), and status and probes (P8) arrive with their phases.
+Import-linter contract: `registerwatch.http` may not import `registerwatch.api` or
+`registerwatch.cli`; register parsers may not import `registerwatch.http`.
+Phase 2's v1 surface: `listJurisdictions`, `getJurisdiction`, `listRegisters`,
+`getRegister`, `getTable`, `listRows`, `search`, `getDomainStatus`. `listRows` already
+uses the final contract: `filter[col]=` filters, unknown parameters refused, and an
+opaque, query-bound `cursor`. Inside, the cursor still holds an offset until P4.2 makes it
+a keyset; clients cannot tell.
+- T2.1.a `uv run pytest tests/test_api.py` (existing tests, unchanged) passes against the legacy routes, and the legacy paths and their schemas in `openapi/v1.yaml` are identical to Phase 1's (`breaking.sh` against the Phase 1 commit passes too).
 - T2.1.b `uv run lint-imports` passes, including the new contract.
 - T2.1.c `GET /v1/jurisdictions`, `/v1/registers`, `/v1/registers/gb_ukgc`, `/v1/registers/gb_ukgc/tables/licences` return 200 with the shapes in 2.2 (new tests in `tests/test_api_v1.py`).
 
@@ -257,7 +267,7 @@ Add an import-linter contract: `registerwatch.http.v1` may not import `registerw
 `listJurisdictionChanges`, `listSnapshots`, `search`, `getDomainStatus`, `createIngestRun`,
 `listIngestRuns`, `getIngestRun`, `getStatus`, `livez`, `readyz`). Tags: `jurisdictions`,
 `registers`, `rows`, `changes`, `search`, `domains`, `ingest`, `operations`.
-- T2.2.a `test_contract.py::test_operation_ids_are_explicit` asserts no `operationId` contains `__` and all are unique.
+- T2.2.a `test_contract.py::test_operation_ids_are_explicit` asserts no v1 `operationId` contains `_` and all ids are unique. Legacy ids stay as generated, since renaming them would rename methods in clients already generated from them.
 - T2.2.b Every v1 operation has exactly one tag from the list above.
 
 **P2.3 Pydantic response models with examples.**
@@ -267,13 +277,24 @@ plus `values: dict[str, Any]` validated against the table's declared columns),
 `Change`, `Snapshot`, `SearchHit`, `DomainStatus`, `IngestRun`, `IngestRunResult`,
 `Status`, `Page[T]`). Every model has `json_schema_extra` examples taken from real
 fixture rows (gb_ukgc, ch_esbk).
+Built in Phase 2: the models for the Phase 2 surface. `Row` has `first_seen_at`,
+`last_seen_at` and `values`; `id` and `first_seen_snapshot_id` are added (additively)
+when P4.1 exposes them in the views. Pages are explicit classes (`RowPage`, ...) rather
+than `Page[T]`, so schema names stay readable. `Change`, `Snapshot`, `IngestRun*` and
+`Status` arrive with their endpoints. FastAPI strips `null` from examples when it writes
+the spec; `http/openapi.py` restores them so examples still match their schemas.
 - T2.3.a `test_contract.py::test_no_untyped_200s`: no v1 2xx response schema is `{"type":"object","additionalProperties":true}`.
 - T2.3.b Every v1 2xx response in the spec has at least one example.
-- T2.3.c `schemathesis` `response_schema_conformance` passes for every v1 read operation.
+- T2.3.c `schemathesis` `response_schema_conformance` passes for every v1 read operation (fake and [pg]), and a deliberately wrong schema (`Row.values: integer`) fails it, so the check is not vacuous.
 
 **P2.4 Spec metadata.**
-`servers` (`https://api.registerwatch.dev` and `http://localhost:8000`), `info.license`
-(match the repo's licence; if none, add one in this step and say which), `info.contact`.
+`servers`, `info.license` (match the repo's licence; if none, add one in this step and
+say which), `info.contact`.
+As built: `servers` is the relative URL `/` ("the deployment serving this document").
+No deployment host is known, the `api.registerwatch.dev` name first written here was a
+placeholder, and `localhost` trips Redocly's `no-server-example.com`. The repo has no
+LICENSE file, so `info.license` says "All rights reserved" (linking to an explanation
+of what no licence means) until the owner picks one. `info.contact` is the repository.
 - T2.4.a Redocly lint: `no-empty-servers`, `info-license` errors gone.
 
 Checklist
@@ -312,7 +333,7 @@ generated from it.
 `q` `min_length=2, max_length=200`, `domain` validated with `extract.host()` and
 `max_length=253`, `jurisdiction` as a repeated param validated against known codes.
 - T3.2.a `GET /v1/registers/gb_ukgc/tables/licences/rows?limit=0`, `limit=1001`, `limit=-1` → 400 `invalid-parameter`, `errors[0].field == "limit"`.
-- T3.2.b `GET /v1/registers/gb_ukgc/changes?since=2026-10-01T00:00:00` (naive) → 400; with `Z` → 200.
+- T3.2.b Every v1 datetime parameter refuses a naive value with 400. No v1 operation takes one until the change feed lands in P4.3, so the concrete check `GET /v1/registers/gb_ukgc/changes?since=2026-10-01T00:00:00` → 400 (and with `Z` → 200) runs there as T4.3.d. P3 adds the shared `AwareDatetime` parameter type and its unit test.
 - T3.2.c `GET /v1/domains/not_a_host!!` → 400; a 300-char domain → 400.
 - T3.2.d `GET /v1/search?q=a` → 400; `q` of 201 chars → 400.
 - T3.2.e schemathesis `not_a_server_error` passes on every v1 operation (the T1.3.b baseline failures are gone and their entries are removed from `tests/contract_baseline.json`).
@@ -363,6 +384,7 @@ query parameter is a 400 `invalid-parameter`.
 - T4.2.c A cursor reused with a different `filter[...]` → 400 `invalid-cursor`. A cursor with a flipped byte → 400 `invalid-cursor`.
 - T4.2.d `?status=Active` (old style) on a v1 route → 400 naming `status` and suggesting `filter[status]`.
 - T4.2.e `Link: <...>; rel="next"` present iff `has_more`.
+- T4.2.f `GET /v1/registers/gb_ukgc/tables/licences/rows/{id}` (`getRow`) returns the row with its history markers; an unknown id → 404. `Row` gains `id` and `first_seen_snapshot_id` in every response.
 
 **P4.3 Change feed.**
 `/v1/registers/{slug}/changes` and `/v1/jurisdictions/{code}/changes` return the flat
@@ -370,6 +392,7 @@ event list, cursor on `(snapshot_id, id, change)`. Baseline snapshot excluded, a
 - T4.3.a **[pg]** After the engine's three-run test: the feed since run 1 returns exactly 1 `added` and 1 `removed` event, in snapshot order.
 - T4.3.b **[pg]** With 2,500 synthetic changes and `limit=1000`: three pages, `has_more` true, true, false; 2,500 events total (F4 regression test).
 - T4.3.c Jurisdiction feed for `ch` interleaves `ch_esbk` and `ch_gespa` events in `(snapshot_id, id)` order.
+- T4.3.d `GET /v1/registers/gb_ukgc/changes?since=2026-10-01T00:00:00` (naive) → 400; with `Z` → 200 (moved here from T3.2.b).
 
 **P4.4 Search pagination.**
 `/v1/search` returns one hit per table with `total` and the first `limit` rows, plus a
@@ -377,6 +400,13 @@ event list, cursor on `(snapshot_id, id, change)`. Baseline snapshot excluded, a
 `UNION ALL` query per register rather than two queries per table.
 - T4.4.a Query count per `/v1/search` call (instrumented via a psycopg connection wrapper in the test) ≤ number of registers searched.
 - T4.4.b Every `rows_url` in a search response returns 200 and the same `total`.
+
+**P4.5 Snapshot history.**
+`GET /v1/registers/{slug}/snapshots` (`listSnapshots`): every recorded run, complete or
+not, newest first, with `complete`, `incomplete_reason`, `record_count`, `fetched_at`,
+keyset-paged on `id`.
+- T4.5.a **[pg]** After the engine's three-run test: three snapshots, newest first; the incomplete one carries its reason.
+- T4.5.b **[pg]** `limit=1` walks all three in three pages, `has_more` false on the last.
 
 Checklist
 - [ ] T4.1.a DDL test passes
@@ -387,11 +417,15 @@ Checklist
 - [ ] T4.2.c bad or mismatched cursor refused
 - [ ] T4.2.d old filter style refused with hint
 - [ ] T4.2.e Link header matches has_more
+- [ ] T4.2.f getRow returns one row by id
 - [ ] T4.3.a change feed matches engine history
 - [ ] T4.3.b large feed pages without truncation
 - [ ] T4.3.c jurisdiction feed ordered across registers
+- [ ] T4.3.d naive since refused on the change feed
 - [ ] T4.4.a search query count bounded
 - [ ] T4.4.b search rows_url consistent
+- [ ] T4.5.a snapshot history newest first with reasons
+- [ ] T4.5.b snapshot history pages
 - [ ] GATE P4
 
 ---
@@ -797,4 +831,4 @@ Strike a phase here only after its `GATE` line is struck.
 | F14 pool starvation | T7.3.c, T8.2.a–c |
 | F15 spec hygiene | T2.2.a, T2.4.a |
 | F16 platform defaults | T9.1.a–T10.6.c |
-| F17 timestamps | T3.2.b |
+| F17 timestamps | T3.2.b, T4.3.d |

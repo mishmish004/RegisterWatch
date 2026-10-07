@@ -37,6 +37,7 @@ from registerwatch import __version__, jurisdictions, query, registers
 from registerwatch.config import settings
 from registerwatch.db.engine import pool, tx
 from registerwatch.db.repos import snapshots as repo
+from registerwatch.http import openapi, v1
 from registerwatch.ingest import engine
 from registerwatch.storage.blobs import make_store
 
@@ -64,7 +65,14 @@ app = FastAPI(
     version=__version__,
     description="Gambling regulators' public registers, one schema per register, with history.",
     lifespan=lifespan,
+    # Relative: the deployment serving this spec. Clients set their own base URL.
+    servers=[{"url": "/", "description": "The deployment serving this document"}],
+    contact={"name": "registerwatch", "url": "https://github.com/mishmish004/RegisterWatch"},
+    # The repository has no LICENSE file, so no rights are granted beyond reading the code.
+    license_info={"name": "All rights reserved", "url": "https://choosealicense.com/no-permission/"},
 )
+app.include_router(v1.router)
+openapi.install(app)
 
 
 def require_token(authorization: str | None = Header(default=None)) -> None:

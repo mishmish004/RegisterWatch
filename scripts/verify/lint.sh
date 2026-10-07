@@ -6,7 +6,7 @@
 set -uo pipefail
 root=$(git rev-parse --show-toplevel)
 spec="${1:-$root/openapi/v1.yaml}"
-out=$(cd "$root" && npx -y @redocly/cli@2.59.0 lint "$spec" --config "$root/redocly.yaml" --format=summary 2>&1)
+out=$(cd "$root" && REDOCLY_TELEMETRY=off REDOCLY_SUPPRESS_UPDATE_NOTICE=true npx -y @redocly/cli@2.59.0 lint "$spec" --config "$root/redocly.yaml" --format=summary 2>&1)
 code=$?
 echo "$out" | grep -E '^(error|warning) ' || true
 summary=$(echo "$out" | grep -E 'Validation failed|Woohoo|valid' | tail -1)

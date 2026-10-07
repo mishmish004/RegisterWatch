@@ -54,10 +54,19 @@ forbidden_modules = [
   "registerwatch.storage",
   "registerwatch.ingest",
   "registerwatch.api",
+  "registerwatch.http",
   "httpx",
   "psycopg",
   "boto3",
 ]
+
+# The versioned API never reaches into the legacy routes (registerwatch.api) or
+# the CLI, so retiring the legacy surface is deleting code, not untangling it.
+[[tool.importlinter.contracts]]
+name = "v1 does not depend on the legacy API"
+type = "forbidden"
+source_modules = ["registerwatch.http"]
+forbidden_modules = ["registerwatch.api", "registerwatch.cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

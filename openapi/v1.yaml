@@ -2,8 +2,457 @@ openapi: 3.1.0
 info:
   title: registerwatch
   description: Gambling regulators' public registers, one schema per register, with history.
+  contact:
+    name: registerwatch
+    url: https://github.com/mishmish004/RegisterWatch
+  license:
+    name: All rights reserved
+    url: https://choosealicense.com/no-permission/
   version: 0.2.0
+servers:
+- url: /
+  description: The deployment serving this document
 paths:
+  /v1/jurisdictions:
+    get:
+      tags:
+      - jurisdictions
+      summary: List jurisdictions
+      operationId: listJurisdictions
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JurisdictionPage'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/jurisdictions/{code}:
+    get:
+      tags:
+      - jurisdictions
+      summary: Get a jurisdiction with its registers and their freshness
+      operationId: getJurisdiction
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          description: 'Jurisdiction code, any case, `-` or `_`: `gb`, `US-NJ`, `ca_on`'
+          examples:
+          - ch
+          title: Code
+        description: 'Jurisdiction code, any case, `-` or `_`: `gb`, `US-NJ`, `ca_on`'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JurisdictionDetail'
+        '404':
+          description: Unknown identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/registers:
+    get:
+      tags:
+      - registers
+      summary: List registers
+      operationId: listRegisters
+      parameters:
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterPage'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/registers/{slug}:
+    get:
+      tags:
+      - registers
+      summary: Get a register with its tables and freshness
+      operationId: getRegister
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Register slug, e.g. `gb_ukgc`
+          examples:
+          - gb_ukgc
+          title: Slug
+        description: Register slug, e.g. `gb_ukgc`
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterDetail'
+        '404':
+          description: Unknown identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/registers/{slug}/tables/{table}:
+    get:
+      tags:
+      - registers
+      summary: Get a table's columns
+      operationId: getTable
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Register slug, e.g. `gb_ukgc`
+          examples:
+          - gb_ukgc
+          title: Slug
+        description: Register slug, e.g. `gb_ukgc`
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Table name within the register
+          examples:
+          - licences
+          title: Table
+        description: Table name within the register
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TableSchema'
+        '404':
+          description: Unknown identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/registers/{slug}/tables/{table}/rows:
+    get:
+      tags:
+      - rows
+      summary: List a table's current rows
+      operationId: listRows
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Register slug, e.g. `gb_ukgc`
+          examples:
+          - gb_ukgc
+          title: Slug
+        description: Register slug, e.g. `gb_ukgc`
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Table name within the register
+          examples:
+          - licences
+          title: Table
+        description: Table name within the register
+      - name: q
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            minLength: 1
+            maxLength: 200
+          - type: 'null'
+          description: Case-insensitive substring in any text column
+          title: Q
+        description: Case-insensitive substring in any text column
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          default: 100
+          title: Limit
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`next_cursor` from the previous page'
+          title: Cursor
+        description: '`next_cursor` from the previous page'
+      - name: include_total
+        in: query
+        required: false
+        schema:
+          type: boolean
+          description: Also count every matching row (slower)
+          default: false
+          title: Include Total
+        description: Also count every matching row (slower)
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      - name: filter
+        in: query
+        style: deepObject
+        explode: true
+        required: false
+        description: Exact match on a column, e.g. `filter[status]=Active&filter[type]=Remote`. Columns
+          are listed by getTable; any other column is a 400.
+        schema:
+          type: object
+          additionalProperties:
+            type: string
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RowPage'
+        '400':
+          description: Invalid parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '404':
+          description: Unknown identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/search:
+    get:
+      tags:
+      - search
+      summary: Find text in every register's current rows
+      operationId: search
+      parameters:
+      - name: q
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 2
+          maxLength: 200
+          description: Case-insensitive substring
+          title: Q
+        description: Case-insensitive substring
+      - name: jurisdiction
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          description: Only these jurisdictions; repeat the parameter for several (`?jurisdiction=gb&jurisdiction=de`)
+          title: Jurisdiction
+        description: Only these jurisdictions; repeat the parameter for several (`?jurisdiction=gb&jurisdiction=de`)
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          description: Rows returned per table
+          default: 20
+          title: Limit
+        description: Rows returned per table
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchHitPage'
+        '404':
+          description: Unknown identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /v1/domains/{domain}:
+    get:
+      tags:
+      - domains
+      summary: Where a domain is licensed, and where it is blocked
+      description: A leading `www.` is ignored, and a listed subdomain counts as a match of its parent
+        (`nj.bet365.com` for `bet365.com`), marked `subdomain`.
+      operationId: getDomainStatus
+      parameters:
+      - name: domain
+        in: path
+        required: true
+        schema:
+          type: string
+          description: A hostname; a URL is accepted and reduced to its host
+          examples:
+          - bet365.com
+          title: Domain
+        description: A hostname; a URL is accepted and reduced to its host
+      - name: jurisdiction
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: array
+            items:
+              type: string
+          - type: 'null'
+          description: Only these jurisdictions; repeat the parameter for several (`?jurisdiction=gb&jurisdiction=de`)
+          title: Jurisdiction
+        description: Only these jurisdictions; repeat the parameter for several (`?jurisdiction=gb&jurisdiction=de`)
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DomainStatus'
+        '400':
+          description: Invalid parameter
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '404':
+          description: Unknown identifier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPError'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
   /health:
     get:
       tags:
@@ -487,6 +936,181 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    Column:
+      properties:
+        name:
+          type: string
+          title: Name
+        type:
+          type: string
+          enum:
+          - text
+          - date
+          - timestamptz
+          - int
+          - bigint
+          - numeric
+          - bool
+          - text[]
+          title: Type
+        required:
+          type: boolean
+          title: Required
+          description: Filled in on (nearly) every row of a good snapshot
+      type: object
+      required:
+      - name
+      - type
+      - required
+      title: Column
+      examples:
+      - name: licence_number
+        type: text
+        required: true
+    DomainMatch:
+      properties:
+        jurisdiction:
+          type: string
+          title: Jurisdiction
+        register:
+          type: string
+          title: Register
+          description: Register slug, also its Postgres schema
+        regulator:
+          type: string
+          title: Regulator
+        kind:
+          type: string
+          enum:
+          - licensees
+          - blocklist
+          title: Kind
+        table:
+          type: string
+          title: Table
+        match:
+          type: string
+          enum:
+          - exact
+          - subdomain
+          title: Match
+          description: '`subdomain`: the row lists a subdomain of the domain'
+        row:
+          $ref: '#/components/schemas/Row'
+      type: object
+      required:
+      - jurisdiction
+      - register
+      - regulator
+      - kind
+      - table
+      - match
+      - row
+      title: DomainMatch
+      examples:
+      - &id001
+        jurisdiction: US-NJ
+        register: us_nj_dge
+        regulator: New Jersey Division of Gaming Enforcement
+        kind: licensees
+        table: internet_gaming_sites
+        match: subdomain
+        row:
+          first_seen_at: '2026-10-05T06:01:12Z'
+          last_seen_at: '2026-10-07T06:00:41Z'
+          values:
+            licensee: HARD ROCK HOTEL AND CASINO
+            site: nj.bet365.com
+            host: nj.bet365.com
+            status: authorized
+    DomainStatus:
+      properties:
+        domain:
+          type: string
+          title: Domain
+          description: The hostname checked, lower-cased, without a leading `www.`
+        licensed_in:
+          items:
+            type: string
+          type: array
+          title: Licensed In
+          description: Jurisdictions whose licensee registers list it
+        blocked_in:
+          items:
+            type: string
+          type: array
+          title: Blocked In
+          description: Jurisdictions whose blocklists list it
+        matches:
+          items:
+            $ref: '#/components/schemas/DomainMatch'
+          type: array
+          title: Matches
+      type: object
+      required:
+      - domain
+      - licensed_in
+      - blocked_in
+      - matches
+      title: DomainStatus
+      examples:
+      - domain: bet365.com
+        licensed_in:
+        - US-NJ
+        blocked_in:
+        - CH
+        matches:
+        - *id001
+    Freshness:
+      properties:
+        last_attempt_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Attempt At
+          description: Newest ingest attempt, good or not
+        last_good_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Last Good At
+          description: Newest complete snapshot; null if there has never been one
+        last_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Last Reason
+          description: Why the newest attempt was incomplete, e.g. `PAGE_GAP:3/4 licences:HTTP_503`; null
+            if it was complete
+        failed_7d:
+          type: integer
+          title: Failed 7D
+          description: Incomplete attempts in the last 7 days
+      type: object
+      required:
+      - last_attempt_at
+      - last_good_at
+      - last_reason
+      - failed_7d
+      title: Freshness
+      examples:
+      - last_attempt_at: '2026-10-07T06:00:41Z'
+        last_good_at: '2026-10-07T06:00:41Z'
+        last_reason: null
+        failed_7d: 0
+    HTTPError:
+      properties:
+        detail:
+          type: string
+          title: Detail
+      type: object
+      required:
+      - detail
+      title: HTTPError
+      examples:
+      - detail: 'unknown register ''xx_nope''; known: au_acma, be_gc, ...'
     HTTPValidationError:
       properties:
         detail:
@@ -496,6 +1120,537 @@ components:
           title: Detail
       type: object
       title: HTTPValidationError
+    Jurisdiction:
+      properties:
+        code:
+          type: string
+          title: Code
+          description: ISO 3166-1 alpha-2, or a subdivision such as US-NJ
+        name:
+          type: string
+          title: Name
+        url:
+          type: string
+          title: Url
+        registers:
+          items:
+            $ref: '#/components/schemas/RegisterSummary'
+          type: array
+          title: Registers
+      type: object
+      required:
+      - code
+      - name
+      - url
+      - registers
+      title: Jurisdiction
+      examples:
+      - &id002
+        code: CH
+        name: Switzerland
+        url: /v1/jurisdictions/ch
+        registers:
+        - slug: ch_esbk
+          jurisdiction: CH
+          regulator: Eidgenössische Spielbankenkommission (ESBK)
+          name: Blocklist of unauthorised online casino games
+          kind: blocklist
+          url: /v1/registers/ch_esbk
+        - slug: ch_gespa
+          jurisdiction: CH
+          regulator: Gespa — Interkantonale Geldspielaufsicht
+          name: Blocklist of unauthorised lottery and betting sites
+          kind: blocklist
+          url: /v1/registers/ch_gespa
+    JurisdictionDetail:
+      properties:
+        code:
+          type: string
+          title: Code
+        name:
+          type: string
+          title: Name
+        url:
+          type: string
+          title: Url
+        registers:
+          items:
+            $ref: '#/components/schemas/RegisterDetail'
+          type: array
+          title: Registers
+      type: object
+      required:
+      - code
+      - name
+      - url
+      - registers
+      title: JurisdictionDetail
+      examples:
+      - code: CH
+        name: Switzerland
+        url: /v1/jurisdictions/ch
+        registers:
+        - slug: ch_esbk
+          jurisdiction: CH
+          regulator: Eidgenössische Spielbankenkommission (ESBK)
+          name: Blocklist of unauthorised online casino games
+          kind: blocklist
+          homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
+          url: /v1/registers/ch_esbk
+          tables:
+          - &id003
+            register: ch_esbk
+            name: blocked_domains
+            description: null
+            columns:
+            - name: domain
+              type: text
+              required: true
+            - name: listed_on
+              type: date
+              required: false
+            url: /v1/registers/ch_esbk/tables/blocked_domains
+            rows_url: /v1/registers/ch_esbk/tables/blocked_domains/rows
+          freshness: null
+    JurisdictionPage:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/Jurisdiction'
+          type: array
+          title: Data
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      type: object
+      required:
+      - data
+      - pagination
+      title: JurisdictionPage
+      examples:
+      - data:
+        - *id002
+        pagination:
+          next_cursor: null
+          has_more: false
+          limit: 20
+          total: 20
+    Pagination:
+      properties:
+        next_cursor:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Next Cursor
+          description: Pass as `cursor` for the next page; null on the last page
+        has_more:
+          type: boolean
+          title: Has More
+        limit:
+          type: integer
+          title: Limit
+          description: Page size this response was read with
+        total:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Total
+          description: Matching items; only with `include_total=true` on endpoints that offer it, else
+            null
+      type: object
+      required:
+      - next_cursor
+      - has_more
+      - limit
+      title: Pagination
+      examples:
+      - next_cursor: eyJwIjp7Im8iOjEwMH0sInMiOiI0ZjFkIn0
+        has_more: true
+        limit: 100
+        total: null
+    Register:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        jurisdiction:
+          type: string
+          title: Jurisdiction
+        regulator:
+          type: string
+          title: Regulator
+        name:
+          type: string
+          title: Name
+        kind:
+          type: string
+          enum:
+          - licensees
+          - blocklist
+          title: Kind
+        homepage:
+          type: string
+          title: Homepage
+        url:
+          type: string
+          title: Url
+        tables:
+          items:
+            $ref: '#/components/schemas/TableSchema'
+          type: array
+          title: Tables
+      type: object
+      required:
+      - slug
+      - jurisdiction
+      - regulator
+      - name
+      - kind
+      - homepage
+      - url
+      - tables
+      title: Register
+      examples:
+      - &id004
+        slug: ch_esbk
+        jurisdiction: CH
+        regulator: Eidgenössische Spielbankenkommission (ESBK)
+        name: Blocklist of unauthorised online casino games
+        kind: blocklist
+        homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
+        url: /v1/registers/ch_esbk
+        tables:
+        - *id003
+    RegisterDetail:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        jurisdiction:
+          type: string
+          title: Jurisdiction
+        regulator:
+          type: string
+          title: Regulator
+        name:
+          type: string
+          title: Name
+        kind:
+          type: string
+          enum:
+          - licensees
+          - blocklist
+          title: Kind
+        homepage:
+          type: string
+          title: Homepage
+        url:
+          type: string
+          title: Url
+        tables:
+          items:
+            $ref: '#/components/schemas/TableSchema'
+          type: array
+          title: Tables
+        freshness:
+          anyOf:
+          - $ref: '#/components/schemas/Freshness'
+          - type: 'null'
+          description: Null when the database cannot be reached
+      type: object
+      required:
+      - slug
+      - jurisdiction
+      - regulator
+      - name
+      - kind
+      - homepage
+      - url
+      - tables
+      - freshness
+      title: RegisterDetail
+      examples:
+      - slug: ch_esbk
+        jurisdiction: CH
+        regulator: Eidgenössische Spielbankenkommission (ESBK)
+        name: Blocklist of unauthorised online casino games
+        kind: blocklist
+        homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
+        url: /v1/registers/ch_esbk
+        tables:
+        - *id003
+        freshness:
+          last_attempt_at: '2026-10-07T06:00:41Z'
+          last_good_at: '2026-10-07T06:00:41Z'
+          last_reason: null
+          failed_7d: 0
+    RegisterPage:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/Register'
+          type: array
+          title: Data
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      type: object
+      required:
+      - data
+      - pagination
+      title: RegisterPage
+      examples:
+      - data:
+        - *id004
+        pagination:
+          next_cursor: null
+          has_more: false
+          limit: 21
+          total: 21
+    RegisterSummary:
+      properties:
+        slug:
+          type: string
+          title: Slug
+        jurisdiction:
+          type: string
+          title: Jurisdiction
+        regulator:
+          type: string
+          title: Regulator
+        name:
+          type: string
+          title: Name
+        kind:
+          type: string
+          enum:
+          - licensees
+          - blocklist
+          title: Kind
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - slug
+      - jurisdiction
+      - regulator
+      - name
+      - kind
+      - url
+      title: RegisterSummary
+      examples:
+      - slug: gb_ukgc
+        jurisdiction: GB
+        regulator: Gambling Commission
+        name: Public register of gambling businesses
+        kind: licensees
+        url: /v1/registers/gb_ukgc
+    Row:
+      properties:
+        first_seen_at:
+          type: string
+          format: date-time
+          title: First Seen At
+          description: When the first complete snapshot containing this row was recorded
+        last_seen_at:
+          type: string
+          format: date-time
+          title: Last Seen At
+          description: When the newest complete snapshot still containing it was recorded
+        values:
+          additionalProperties:
+            anyOf:
+            - type: string
+            - type: integer
+            - type: number
+            - type: boolean
+            - type: string
+              format: date-time
+            - type: string
+              format: date
+            - items:
+                type: string
+              type: array
+            - type: 'null'
+          type: object
+          title: Values
+          description: The register's own columns, as published; keys are the table's declared columns
+      type: object
+      required:
+      - first_seen_at
+      - last_seen_at
+      - values
+      title: Row
+      examples:
+      - &id005
+        first_seen_at: '2026-10-05T06:01:12Z'
+        last_seen_at: '2026-10-07T06:00:41Z'
+        values:
+          account_number: '102'
+          licence_number: 000102-N-000000-000
+          status: Pending
+          type: Non-Remote
+          activity: Bingo
+          start_date: null
+          end_date: null
+    RowPage:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/Row'
+          type: array
+          title: Data
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      type: object
+      required:
+      - data
+      - pagination
+      title: RowPage
+      examples:
+      - data:
+        - *id005
+        pagination:
+          next_cursor: eyJwIjp7Im8iOjF9LCJzIjoiYjk0YzQ3YjNiYzNkZTE2NyJ9
+          has_more: true
+          limit: 1
+          total: 399
+    SearchHit:
+      properties:
+        jurisdiction:
+          type: string
+          title: Jurisdiction
+        register:
+          type: string
+          title: Register
+          description: Register slug, also its Postgres schema
+        regulator:
+          type: string
+          title: Regulator
+        kind:
+          type: string
+          enum:
+          - licensees
+          - blocklist
+          title: Kind
+        table:
+          type: string
+          title: Table
+        total:
+          type: integer
+          title: Total
+          description: Matching rows in this table
+        rows:
+          items:
+            $ref: '#/components/schemas/Row'
+          type: array
+          title: Rows
+          description: The first `limit` of them
+        rows_url:
+          type: string
+          title: Rows Url
+          description: Every match in this table, paged
+      type: object
+      required:
+      - jurisdiction
+      - register
+      - regulator
+      - kind
+      - table
+      - total
+      - rows
+      - rows_url
+      title: SearchHit
+      examples:
+      - &id006
+        jurisdiction: CH
+        register: ch_esbk
+        regulator: Eidgenössische Spielbankenkommission (ESBK)
+        kind: blocklist
+        table: blocked_domains
+        total: 1
+        rows:
+        - first_seen_at: '2026-10-05T06:01:12Z'
+          last_seen_at: '2026-10-07T06:00:41Z'
+          values:
+            domain: 0101b00merang-bet.com
+            listed_on: '2026-08-25'
+        rows_url: /v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang
+    SearchHitPage:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/SearchHit'
+          type: array
+          title: Data
+          description: One entry per table with a match, most matches first
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      type: object
+      required:
+      - data
+      - pagination
+      title: SearchHitPage
+      examples:
+      - data:
+        - *id006
+        pagination:
+          next_cursor: null
+          has_more: false
+          limit: 1
+          total: 1
+    TableSchema:
+      properties:
+        register:
+          type: string
+          title: Register
+          description: Register slug, also its Postgres schema
+        name:
+          type: string
+          title: Name
+        description:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Description
+        columns:
+          items:
+            $ref: '#/components/schemas/Column'
+          type: array
+          title: Columns
+        url:
+          type: string
+          title: Url
+        rows_url:
+          type: string
+          title: Rows Url
+      type: object
+      required:
+      - register
+      - name
+      - description
+      - columns
+      - url
+      - rows_url
+      title: TableSchema
+      examples:
+      - register: gb_ukgc
+        name: licences
+        description: One row per licence and activity; licence_number's last segment is a version
+        columns:
+        - name: account_number
+          type: text
+          required: true
+        - name: licence_number
+          type: text
+          required: true
+        - name: status
+          type: text
+          required: true
+        - name: start_date
+          type: date
+          required: false
+        url: /v1/registers/gb_ukgc/tables/licences
+        rows_url: /v1/registers/gb_ukgc/tables/licences/rows
     ValidationError:
       properties:
         loc:
