@@ -368,19 +368,19 @@ echo it on every response; include it in log records.
 - T3.3.b A supplied id is echoed; a 1 KB id is replaced, not echoed.
 
 Checklist
-- [ ] T3.1.a every catalog entry returns a correct problem
-- [ ] T3.1.b 500s leak no traceback
-- [ ] T3.1.c error responses documented per operation
-- [ ] T3.1.d no 4xx lint warnings
-- [ ] T3.2.a limit bounds enforced
-- [ ] T3.2.b naive datetimes refused
-- [ ] T3.2.c domain validated
-- [ ] T3.2.d q length validated
-- [ ] T3.2.e schemathesis finds no 5xx
-- [ ] T3.2.f NUL bytes refused with 400
-- [ ] T3.3.a request id generated
-- [ ] T3.3.b request id echoed or replaced
-- [ ] GATE P3
+- [x] ~~T3.1.a every catalog entry returns a correct problem~~
+- [x] ~~T3.1.b 500s leak no traceback~~
+- [x] ~~T3.1.c error responses documented per operation~~
+- [x] ~~T3.1.d no 4xx lint warnings~~
+- [x] ~~T3.2.a limit bounds enforced~~
+- [x] ~~T3.2.b naive datetimes refused~~
+- [x] ~~T3.2.c domain validated~~
+- [x] ~~T3.2.d q length validated~~
+- [x] ~~T3.2.e schemathesis finds no 5xx~~
+- [x] ~~T3.2.f NUL bytes refused with 400~~
+- [x] ~~T3.3.a request id generated~~
+- [x] ~~T3.3.b request id echoed or replaced~~
+- [x] ~~GATE P3~~
 
 ---
 
@@ -821,7 +821,7 @@ Strike a phase here only after its `GATE` line is struck.
 
 - [x] ~~Phase 1. Contract baseline and tooling~~
 - [x] ~~Phase 2. Versioned routing, operation ids, typed responses~~
-- [ ] Phase 3. Errors (RFC 9457) and input validation
+- [x] ~~Phase 3. Errors (RFC 9457) and input validation~~
 - [ ] Phase 4. Stable pagination and a complete change feed
 - [ ] Phase 5. Ingest runs as a persisted resource
 - [ ] Phase 6. Security schemes and authorization
