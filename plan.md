@@ -771,13 +771,13 @@ behind new ones: in T8.2.a, 8 of the 10 finished together at about 4 s. That is 
 and Phase 10's latency budget (T10.6) will measure it under real load.
 
 Checklist
-- [ ] T8.1.a probes behave with DB down
-- [ ] T8.1.b probes behave with a stale register
-- [ ] T8.1.c legacy status tests unchanged
-- [ ] T8.2.a pool exhaustion is 503, not 500
-- [ ] T8.2.b ingest cannot starve reads
-- [ ] T8.2.c Postgres connection count bounded
-- [ ] GATE P8
+- [x] ~~T8.1.a probes behave with DB down~~
+- [x] ~~T8.1.b probes behave with a stale register~~
+- [x] ~~T8.1.c legacy status tests unchanged~~
+- [x] ~~T8.2.a pool exhaustion is 503, not 500~~
+- [x] ~~T8.2.b ingest cannot starve reads~~
+- [x] ~~T8.2.c Postgres connection count bounded~~
+- [x] ~~GATE P8~~
 
 ---
 
@@ -985,7 +985,7 @@ Strike a phase here only after its `GATE` line is struck.
 - [x] ~~Phase 5. Ingest runs as a persisted resource~~
 - [x] ~~Phase 6. Security schemes and authorization~~
 - [x] ~~Phase 7. Caching, rate limiting, query cost~~
-- [ ] Phase 8. Probes, status, and the database pool
+- [x] ~~Phase 8. Probes, status, and the database pool~~
 - [ ] Phase 9. OS and container level
 - [ ] Phase 10. Network level
 - [ ] Phase 11. Scheduler migration (Supabase cron)
