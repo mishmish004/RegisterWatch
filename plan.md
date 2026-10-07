@@ -577,15 +577,15 @@ As built: `Settings` also sets `hide_input_in_errors`, so the refused value is n
 the startup error (pydantic prints `input_value=` by default, which would put a token in the logs).
 
 Checklist
-- [ ] T6.1.a security-defined errors gone
-- [ ] T6.1.b no authorization header param in spec
-- [ ] T6.2.a 401 with WWW-Authenticate
-- [ ] T6.2.b invalid_token on wrong token
-- [ ] T6.2.c 403 for read token on ingest
-- [ ] T6.2.d constant-time comparison
-- [ ] T6.2.e tokens absent from logs
-- [ ] T6.3.a short tokens refused at startup
-- [ ] GATE P6
+- [x] ~~T6.1.a security-defined errors gone~~
+- [x] ~~T6.1.b no authorization header param in spec~~
+- [x] ~~T6.2.a 401 with WWW-Authenticate~~
+- [x] ~~T6.2.b invalid_token on wrong token~~
+- [x] ~~T6.2.c 403 for read token on ingest~~
+- [x] ~~T6.2.d constant-time comparison~~
+- [x] ~~T6.2.e tokens absent from logs~~
+- [x] ~~T6.3.a short tokens refused at startup~~
+- [x] ~~GATE P6~~
 
 ---
 
@@ -872,7 +872,7 @@ Strike a phase here only after its `GATE` line is struck.
 - [x] ~~Phase 3. Errors (RFC 9457) and input validation~~
 - [x] ~~Phase 4. Stable pagination and a complete change feed~~
 - [x] ~~Phase 5. Ingest runs as a persisted resource~~
-- [ ] Phase 6. Security schemes and authorization
+- [x] ~~Phase 6. Security schemes and authorization~~
 - [ ] Phase 7. Caching, rate limiting, query cost
 - [ ] Phase 8. Probes, status, and the database pool
 - [ ] Phase 9. OS and container level
