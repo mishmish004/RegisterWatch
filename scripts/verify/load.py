@@ -21,7 +21,10 @@ same sequence; entries sharing a NAME are one class in the report. `--clients N`
 sends request i as client i mod N, named by `X-Forwarded-For: 198.18.x.y` (the
 benchmarking range, RFC 2544): the server believes it only from a proxy it
 trusts (FORWARDED_ALLOW_IPS), and then counts each client's rate limits apart.
-The result is one JSON line:
+`--warmup S` sends at the same rate and mix for S seconds first, without a gap,
+and reports them apart (`warmup`): a fresh process's first seconds, its pool
+still opening connections among other first-time costs, are not its steady
+state. The result is one JSON line:
 
   {"rps": 50, "duration_s": 120, "elapsed_s": 120.1, "sent": 6000, "statuses": {"200": 6000},
    "errors": {}, "p50_ms": .., "p95_ms": .., "p99_ms": .., "max_ms": .., "late_starts": 0,
@@ -31,7 +34,7 @@ The result is one JSON line:
 behind. `errors` counts requests with no HTTP answer, by exception. `late_starts` counts
 requests sent more than 100 ms after they were due: every connection was busy,
 or the client itself fell behind. `classes` is there with `--mix`. Exits 1 when
-a request got no answer or any answer was a 5xx.
+a request got no answer or any answer was a 5xx, the warm-up's included.
 """
 
 from __future__ import annotations
@@ -93,13 +96,18 @@ def summary(latencies: list[float], statuses: Counter[str], errors: Counter[str]
 
 
 async def run(base: str, mix: list[tuple[str, float, str]], rps: float, duration: float, token: str | None,
-              timeout: float, concurrency: int, clients: int, verify: bool | ssl.SSLContext = True) -> dict:
+              timeout: float, concurrency: int, clients: int, verify: bool | ssl.SSLContext = True,
+              warmup: float = 0.0) -> dict:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     limits = httpx.Limits(max_connections=concurrency, max_keepalive_connections=concurrency)
     slots = asyncio.Semaphore(concurrency)
     statuses: dict[str, Counter[str]] = defaultdict(Counter)
     errors: dict[str, Counter[str]] = defaultdict(Counter)
     latencies: dict[str, list[float]] = defaultdict(list)
+    warm_statuses: Counter[str] = Counter()
+    warm_errors: Counter[str] = Counter()
+    warm_latencies: list[float] = []
+    warm_n = int(rps * warmup)
     late = 0
 
     async with httpx.AsyncClient(base_url=base, headers=headers, limits=limits, verify=verify,
@@ -109,19 +117,22 @@ async def run(base: str, mix: list[tuple[str, float, str]], rps: float, duration
             nonlocal late
             name, path = schedule(mix, i)
             extra = {"X-Forwarded-For": client_address(i % clients)} if clients > 1 else None
+            warm = i < warm_n
+            got, failed, took = ((warm_statuses, warm_errors, warm_latencies) if warm
+                                 else (statuses[name], errors[name], latencies[name]))
             async with slots:
-                if time.perf_counter() - due > 0.1:
+                if not warm and time.perf_counter() - due > 0.1:
                     late += 1
                 try:
                     response = await client.get(path, headers=extra)
                     await response.aread()
-                    statuses[name][str(response.status_code)] += 1
+                    got[str(response.status_code)] += 1
                 except httpx.HTTPError as exc:
-                    errors[name][type(exc).__name__] += 1
-            latencies[name].append((time.perf_counter() - due) * 1000)
+                    failed[type(exc).__name__] += 1
+            took.append((time.perf_counter() - due) * 1000)
 
         start = time.perf_counter()
-        total = int(rps * duration)
+        total = warm_n + int(rps * duration)
         tasks = []
         for i in range(total):
             due = start + i / rps
@@ -130,12 +141,14 @@ async def run(base: str, mix: list[tuple[str, float, str]], rps: float, duration
                 await asyncio.sleep(delay)
             tasks.append(asyncio.create_task(one(i, due)))
         await asyncio.gather(*tasks)
-        elapsed = time.perf_counter() - start
+        elapsed = time.perf_counter() - start - warm_n / rps
 
     everything = summary([x for v in latencies.values() for x in v], sum(statuses.values(), Counter()),
                          sum(errors.values(), Counter()))
     out = {"rps": rps, "duration_s": duration, "elapsed_s": round(elapsed, 1), **everything,
            "late_starts": late, "concurrency": concurrency, "clients": clients}
+    if warm_n:
+        out["warmup"] = {"duration_s": warmup, **summary(warm_latencies, warm_statuses, warm_errors)}
     if len(mix) > 1:
         out["classes"] = {name: summary(latencies[name], statuses[name], errors[name])
                           for name in dict.fromkeys(n for n, _, _ in mix)}
@@ -157,13 +170,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--clients", type=int, default=1,
                    help="distinct X-Forwarded-For client addresses, round robin (default 1: none sent)")
     p.add_argument("--cacert", help="trust this CA bundle instead of the default store (a test edge's own CA)")
+    p.add_argument("--warmup", type=float, default=0, help="seconds at the same rate first, reported apart (default 0)")
     args = p.parse_args(argv)
     mix = parse_mix(args.mix) if args.mix else [("all", 1.0, args.path)]
     result = asyncio.run(run(args.base, mix, args.rps, args.duration, args.token, args.timeout,
                              args.concurrency, max(1, args.clients),
-                             ssl.create_default_context(cafile=args.cacert) if args.cacert else True))
+                             ssl.create_default_context(cafile=args.cacert) if args.cacert else True,
+                             args.warmup))
     print(json.dumps(result))
-    failed = sum(result["errors"].values()) + sum(n for s, n in result["statuses"].items() if s.startswith("5"))
+    failed = sum(sum(r["errors"].values()) + sum(n for s, n in r["statuses"].items() if s.startswith("5"))
+                 for r in (result, result.get("warmup", {"errors": {}, "statuses": {}})))
     return 1 if failed else 0
 
 

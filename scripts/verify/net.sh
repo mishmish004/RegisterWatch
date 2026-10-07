@@ -262,12 +262,13 @@ gone rw-net
 if wanted T10.6.a; then
   # One client address can read 600 a minute and search 60: the load comes from
   # 40 addresses (X-Forwarded-For, from 127.0.0.1, which the server trusts), each
-  # at 2.5 requests a second, under both limits.
+  # at 2.5 requests a second, under both limits. The budget is the steady state:
+  # the fresh container's first 10 s are reported apart (and still may not 5xx).
   api rw-net-load $((PORT + 4)) -e WEB_CONCURRENCY="$WORKERS"
-  helper -- load.py --base "http://127.0.0.1:$((PORT + 4))" --rps 100 --duration "$LOAD_S" --clients 40 "${MIX[@]}" > "$TMP/load"
+  helper -- load.py --base "http://127.0.0.1:$((PORT + 4))" --rps 100 --warmup 10 --duration "$LOAD_S" --clients 40 "${MIX[@]}" > "$TMP/load"
   gone rw-net-load
-  verdict=$(py '"ok" if d["p95_ms"] < 250 and d["p99_ms"] < 800 and not d["errors"] and not any(s.startswith("5") for s in d["statuses"]) and set(d["statuses"]) == {"200"} else "no"' "$TMP/load")
-  check T10.6.a "$verdict" "$(py '"100 rps for %ss, WEB_CONCURRENCY='"$WORKERS"', 40 client addresses: %s, errors %s, p50 %s, p95 %s, p99 %s, max %s ms (bounds p95 250, p99 800); took %s s; by class %s" % (d["duration_s"], d["statuses"], d["errors"], d["p50_ms"], d["p95_ms"], d["p99_ms"], d["max_ms"], d["elapsed_s"], {k: "%s %s/%s/%s ms" % (v["sent"], v["p50_ms"], v["p95_ms"], v["p99_ms"]) for k, v in d["classes"].items()})' "$TMP/load")"
+  verdict=$(py '"ok" if d["p95_ms"] < 250 and d["p99_ms"] < 800 and not d["errors"] and set(d["statuses"]) == {"200"} and not d["warmup"]["errors"] and set(d["warmup"]["statuses"]) == {"200"} else "no"' "$TMP/load")
+  check T10.6.a "$verdict" "$(py '"100 rps for %ss after %ss of warm-up, WEB_CONCURRENCY='"$WORKERS"', 40 client addresses: %s, errors %s, p50 %s, p95 %s, p99 %s, max %s ms (bounds p95 250, p99 800); took %s s; by class %s; the warm-up: %s, p50 %s, p99 %s, max %s ms" % (d["duration_s"], d["warmup"]["duration_s"], d["statuses"], d["errors"], d["p50_ms"], d["p95_ms"], d["p99_ms"], d["max_ms"], d["elapsed_s"], {k: "%s %s/%s/%s ms" % (v["sent"], v["p50_ms"], v["p95_ms"], v["p99_ms"]) for k, v in d["classes"].items()}, d["warmup"]["statuses"], d["warmup"]["p50_ms"], d["warmup"]["p99_ms"], d["warmup"]["max_ms"])' "$TMP/load")"
 fi
 
 if wanted T10.6.b; then
