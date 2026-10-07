@@ -298,16 +298,16 @@ of what no licence means) until the owner picks one. `info.contact` is the repos
 - T2.4.a Redocly lint: `no-empty-servers`, `info-license` errors gone.
 
 Checklist
-- [ ] T2.1.a legacy tests still pass
-- [ ] T2.1.b import contracts pass
-- [ ] T2.1.c v1 discovery endpoints return documented shapes
-- [ ] T2.2.a operation ids explicit and unique
-- [ ] T2.2.b one tag per operation
-- [ ] T2.3.a no untyped 2xx schemas
-- [ ] T2.3.b every 2xx has an example
-- [ ] T2.3.c schemathesis schema conformance on v1 reads
-- [ ] T2.4.a servers and license lint errors gone
-- [ ] GATE P2
+- [x] ~~T2.1.a legacy tests still pass~~
+- [x] ~~T2.1.b import contracts pass~~
+- [x] ~~T2.1.c v1 discovery endpoints return documented shapes~~
+- [x] ~~T2.2.a operation ids explicit and unique~~
+- [x] ~~T2.2.b one tag per operation~~
+- [x] ~~T2.3.a no untyped 2xx schemas~~
+- [x] ~~T2.3.b every 2xx has an example~~
+- [x] ~~T2.3.c schemathesis schema conformance on v1 reads~~
+- [x] ~~T2.4.a servers and license lint errors gone~~
+- [x] ~~GATE P2~~
 
 ---
 
@@ -798,7 +798,7 @@ Checklist
 Strike a phase here only after its `GATE` line is struck.
 
 - [x] ~~Phase 1. Contract baseline and tooling~~
-- [ ] Phase 2. Versioned routing, operation ids, typed responses
+- [x] ~~Phase 2. Versioned routing, operation ids, typed responses~~
 - [ ] Phase 3. Errors (RFC 9457) and input validation
 - [ ] Phase 4. Stable pagination and a complete change feed
 - [ ] Phase 5. Ingest runs as a persisted resource
