@@ -1068,26 +1068,26 @@ Corrected (T10.6.c): against the local stand-in, with the read and search limits
 minute, since every request through it comes from one address (the Docker gateway).
 
 Checklist
-- [ ] T10.1.a TLS ≥ 1.2 only
-- [ ] T10.1.b HTTP redirects to HTTPS, HSTS set
-- [ ] T10.1.c certificate chain verifies
-- [ ] T10.1.d security headers present, docs render
-- [ ] T10.2.a trusted proxy address honoured
-- [ ] T10.2.b untrusted forwarded header ignored
-- [ ] T10.2.c client's forwarded header not believed through the edge
-- [ ] T10.3.a keep-alive reuse
-- [ ] T10.3.b idle connection survives 60 s
-- [ ] T10.3.c slow clients cut off, others fine
-- [ ] T10.3.d HTTP/2 at the edge, no resets
-- [ ] T10.4.a gzip ratio recorded, ≤ 25 %
-- [ ] T10.4.b small responses uncompressed
-- [ ] T10.4.c oversized body refused
-- [ ] T10.5.a no CORS by default
-- [ ] T10.5.b CORS allowlist works for GET only
-- [ ] T10.6.a local load within latency budget
-- [ ] T10.6.b overload yields 429, never 5xx
-- [ ] T10.6.c staging latency recorded
-- [ ] GATE P10
+- [x] ~~T10.1.a TLS ≥ 1.2 only (stand-in edge)~~
+- [x] ~~T10.1.b HTTP redirects to HTTPS, HSTS set (stand-in edge)~~
+- [x] ~~T10.1.c certificate chain verifies (stand-in edge)~~
+- [x] ~~T10.1.d security headers present, docs render~~
+- [x] ~~T10.2.a trusted proxy address honoured~~
+- [x] ~~T10.2.b untrusted forwarded header ignored~~
+- [x] ~~T10.2.c client's forwarded header not believed through the edge (stand-in edge)~~
+- [x] ~~T10.3.a keep-alive reuse~~
+- [x] ~~T10.3.b idle connection survives 60 s~~
+- [x] ~~T10.3.c slow clients cut off, others fine~~
+- [x] ~~T10.3.d HTTP/2 at the edge, no resets (stand-in edge)~~
+- [x] ~~T10.4.a gzip ratio recorded, ≤ 25 %~~
+- [x] ~~T10.4.b small responses uncompressed~~
+- [x] ~~T10.4.c oversized body refused~~
+- [x] ~~T10.5.a no CORS by default~~
+- [x] ~~T10.5.b CORS allowlist works for GET only~~
+- [x] ~~T10.6.a local load within latency budget~~
+- [x] ~~T10.6.b overload yields 429, never 5xx~~
+- [x] ~~T10.6.c latency through the edge recorded (stand-in edge; staging in T11.1.d)~~
+- [x] ~~GATE P10~~
 
 ---
 
@@ -1172,7 +1172,7 @@ Strike a phase here only after its `GATE` line is struck.
 - [x] ~~Phase 7. Caching, rate limiting, query cost~~
 - [x] ~~Phase 8. Probes, status, and the database pool~~
 - [x] ~~Phase 9. OS and container level~~
-- [ ] Phase 10. Network level
+- [x] ~~Phase 10. Network level~~
 - [ ] Phase 11. Scheduler migration (Supabase cron)
 - [ ] Phase 12. Legacy deprecation, removal, sign-off
 
