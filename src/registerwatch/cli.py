@@ -10,7 +10,7 @@ functions — a code path that only runs at 6am is a code path you never test.
   registerwatch search bet365 -j gb,de        across jurisdictions
   registerwatch check-domain bet365.com       licensed where, blocked where
   registerwatch ingest [all | gb de | pl_mf]  the daily job
-  registerwatch status | migrate | ddl | serve
+  registerwatch status | migrate | ddl | openapi | serve
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from registerwatch.config import settings
 
 MIGRATIONS = files("registerwatch") / "migrations"
 SCHEMA_MIGRATION = "20261004000005_register_schemas.sql"
+OPENAPI_SPEC = pathlib.Path("openapi") / "v1.yaml"  # relative to a source checkout
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[2]  # only meaningful in a source checkout
 
 
@@ -229,6 +230,30 @@ def cmd_ddl(args: argparse.Namespace) -> int:
     return 0
 
 
+def openapi_yaml() -> str:
+    """The API's spec as committed: generated from the app, never edited by hand."""
+    import yaml
+
+    from registerwatch.api import app
+
+    return yaml.safe_dump(app.openapi(), sort_keys=False, allow_unicode=True, width=100)
+
+
+def cmd_openapi(args: argparse.Namespace) -> int:
+    spec = openapi_yaml()
+    if not args.write:
+        print(spec, end="")
+        return 0
+    target = SOURCE_ROOT / OPENAPI_SPEC
+    if not (SOURCE_ROOT / "pyproject.toml").is_file():
+        print("openapi --write needs a source checkout; print it instead", file=sys.stderr)
+        return 2
+    target.parent.mkdir(exist_ok=True)
+    target.write_text(spec)
+    print(f"wrote {OPENAPI_SPEC}")
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
@@ -351,6 +376,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("ddl", help="print the generated register schemas")
     s.add_argument("--write", action="store_true", help="write the schema migration (source checkout)")
     s.set_defaults(fn=cmd_ddl)
+
+    s = sub.add_parser("openapi", help="print the API's OpenAPI spec")
+    s.add_argument("--write", action="store_true", help=f"write {OPENAPI_SPEC} (source checkout)")
+    s.set_defaults(fn=cmd_openapi)
 
     s = sub.add_parser("serve", help="run the HTTP API")
     s.add_argument("--host")

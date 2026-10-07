@@ -1,0 +1,10 @@
+# Lint rules for openapi/v1.yaml: Redocly's recommended set, with the rules this
+# API's contract depends on raised to errors. scripts/verify/lint.sh runs it.
+extends:
+  - recommended
+rules:
+  operation-4xx-response: error
+  operation-operationId: error
+  no-unused-components: error
+  info-license: error
+  security-defined: error

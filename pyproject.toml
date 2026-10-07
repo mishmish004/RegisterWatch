@@ -14,12 +14,13 @@ dependencies = [
   "lxml>=5",
   "openpyxl>=3.1",
   "pypdf>=4",
+  "pyyaml>=6",
 ]
 
 # `uv sync` installs this group by default; `uv sync --no-dev` (the Dockerfile)
 # leaves it out.
 [dependency-groups]
-dev = ["pytest>=8", "import-linter>=2"]
+dev = ["pytest>=8", "import-linter>=2", "schemathesis>=4"]
 
 [project.scripts]
 registerwatch = "registerwatch.cli:main"
