@@ -247,6 +247,7 @@ class JurisdictionPage(BaseModel):
 # --- rows ------------------------------------------------------------------------
 
 _ROW_EXAMPLE = {
+    "id": 1187, "first_seen_snapshot_id": 412,
     "first_seen_at": "2026-10-05T06:01:12Z", "last_seen_at": "2026-10-07T06:00:41Z",
     "values": {"account_number": "102", "licence_number": "000102-N-000000-000", "status": "Pending",
                "type": "Non-Remote", "activity": "Bingo", "start_date": None, "end_date": None},
@@ -255,6 +256,9 @@ _ROW_EXAMPLE = {
 
 class Row(BaseModel):
     model_config = _examples(_ROW_EXAMPLE)
+    id: int = Field(description="Stable for as long as the row is unchanged; a changed row is a new row "
+                                "(and the old one is removed). Pages are keyed on it")
+    first_seen_snapshot_id: int = Field(description="The complete snapshot that first contained this row")
     first_seen_at: datetime = Field(description="When the first complete snapshot containing this row was recorded")
     last_seen_at: datetime = Field(description="When the newest complete snapshot still containing it was recorded")
     values: dict[str, Value] = Field(description="The register's own columns, as published; "
@@ -262,8 +266,27 @@ class Row(BaseModel):
 
     @classmethod
     def of(cls, table: base.Table, row: dict[str, Any]) -> Row:
-        return cls(first_seen_at=row["first_seen_at"], last_seen_at=row["last_seen_at"],
+        return cls(id=row["id"], first_seen_snapshot_id=row["first_seen_snapshot_id"],
+                   first_seen_at=row["first_seen_at"], last_seen_at=row["last_seen_at"],
                    values={c: row.get(c) for c in table.column_names})
+
+
+class RowDetail(Row):
+    model_config = _examples({**_ROW_EXAMPLE, "last_seen_snapshot_id": 431, "removed_snapshot_id": None,
+                              "removed_at": None, "current": True,
+                              "url": "/v1/registers/gb_ukgc/tables/licences/rows/1187"})
+    last_seen_snapshot_id: int = Field(description="The newest complete snapshot that still contained it")
+    removed_snapshot_id: int | None = Field(description="The first complete snapshot without it; null while current")
+    removed_at: datetime | None
+    current: bool = Field(description="In the register's latest complete snapshot")
+    url: str
+
+    @classmethod
+    def of(cls, table: base.Table, row: dict[str, Any], *, register: str = "") -> RowDetail:
+        return cls(**Row.of(table, row).model_dump(), last_seen_snapshot_id=row["last_seen_snapshot_id"],
+                   removed_snapshot_id=row["removed_snapshot_id"], removed_at=row["removed_at"],
+                   current=row["removed_snapshot_id"] is None,
+                   url=f"/v1/registers/{register}/tables/{table.name}/rows/{row['id']}")
 
 
 class RowPage(BaseModel):
@@ -280,9 +303,10 @@ class SearchHit(BaseModel):
     model_config = _examples({
         "jurisdiction": "CH", "register": "ch_esbk", "regulator": "Eidgenössische Spielbankenkommission (ESBK)",
         "kind": "blocklist", "table": "blocked_domains", "total": 1,
-        "rows": [{"first_seen_at": "2026-10-05T06:01:12Z", "last_seen_at": "2026-10-07T06:00:41Z",
+        "rows": [{"id": 77, "first_seen_snapshot_id": 410,
+                  "first_seen_at": "2026-10-05T06:01:12Z", "last_seen_at": "2026-10-07T06:00:41Z",
                   "values": {"domain": "0101b00merang-bet.com", "listed_on": "2026-08-25"}}],
-        "rows_url": "/v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang",
+        "rows_url": "/v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang&include_total=true",
     })
     jurisdiction: str
     register_: str = REGISTER
@@ -291,7 +315,7 @@ class SearchHit(BaseModel):
     table: str
     total: int = Field(description="Matching rows in this table")
     rows: list[Row] = Field(description="The first `limit` of them")
-    rows_url: str = Field(description="Every match in this table, paged")
+    rows_url: str = Field(description="Every match in this table, paged, with the same `total`")
 
 
 class SearchHitPage(BaseModel):
@@ -307,7 +331,8 @@ class DomainMatch(BaseModel):
     model_config = _examples({
         "jurisdiction": "US-NJ", "register": "us_nj_dge", "regulator": "New Jersey Division of Gaming Enforcement",
         "kind": "licensees", "table": "internet_gaming_sites", "match": "subdomain",
-        "row": {"first_seen_at": "2026-10-05T06:01:12Z", "last_seen_at": "2026-10-07T06:00:41Z",
+        "row": {"id": 9, "first_seen_snapshot_id": 405,
+                "first_seen_at": "2026-10-05T06:01:12Z", "last_seen_at": "2026-10-07T06:00:41Z",
                 "values": {"licensee": "HARD ROCK HOTEL AND CASINO", "site": "nj.bet365.com",
                            "host": "nj.bet365.com", "status": "authorized"}},
     })
@@ -329,3 +354,65 @@ class DomainStatus(BaseModel):
     licensed_in: list[str] = Field(description="Jurisdictions whose licensee registers list it")
     blocked_in: list[str] = Field(description="Jurisdictions whose blocklists list it")
     matches: list[DomainMatch]
+
+
+# --- changes ---------------------------------------------------------------------
+
+_CHANGE_EXAMPLE = {
+    "change": "removed", "at": "2026-10-07T06:00:44Z", "snapshot_id": 431, "register": "gb_ukgc",
+    "table": "licences", "row": {**_ROW_EXAMPLE, "values": {**_ROW_EXAMPLE["values"], "status": "Active"}},
+}
+
+
+class ChangeEvent(BaseModel):
+    model_config = _examples(_CHANGE_EXAMPLE)
+    change: Literal["added", "removed"] = Field(description="A changed row is one `removed` and one `added`")
+    at: datetime = Field(description="When the snapshot that made the change was recorded")
+    snapshot_id: int
+    register_: str = REGISTER
+    table: str
+    row: Row
+
+    @classmethod
+    def of(cls, event: dict[str, Any]) -> ChangeEvent:
+        return cls(change=event["change"], at=event["at"], snapshot_id=event["snapshot_id"],
+                   register_=event["register"].slug, table=event["table"].name,
+                   row=Row.of(event["table"], event))
+
+
+class ChangePage(BaseModel):
+    model_config = _examples({"data": [_CHANGE_EXAMPLE], "pagination": {
+        "next_cursor": "eyJwIjp7ImsiOls0MzEsImdiX3VrZ2MiLCJsaWNlbmNlcyIsMTE4NywicmVtb3ZlZCJdfSwicyI6IjEyIn0",
+        "has_more": True, "limit": 1, "total": None}})
+    data: list[ChangeEvent] = Field(description="Oldest first: by snapshot, then table, row id, change")
+    pagination: Pagination
+
+
+# --- snapshots -------------------------------------------------------------------
+
+_SNAPSHOT_EXAMPLE = {
+    "id": 433, "register": "gb_ukgc", "run_started_at": "2026-10-07T06:00:02Z", "fetched_at": "2026-10-07T06:00:41Z",
+    "complete": False, "incomplete_reason": "PAGE_GAP:3/4 licences:HTTP_503", "record_count": None,
+    "http_status": 503, "pages_expected": 4, "pages_ok": 3,
+}
+
+
+class Snapshot(BaseModel):
+    model_config = _examples(_SNAPSHOT_EXAMPLE)
+    id: int
+    register_: str = REGISTER
+    run_started_at: datetime
+    fetched_at: datetime
+    complete: bool = Field(description="Only complete snapshots change the register's rows")
+    incomplete_reason: str | None = Field(description="Why it was not complete; null when it was")
+    record_count: int | None
+    http_status: int = Field(description="The worst final status across the run's requests")
+    pages_expected: int
+    pages_ok: int
+
+
+class SnapshotPage(BaseModel):
+    model_config = _examples({"data": [_SNAPSHOT_EXAMPLE], "pagination": {
+        "next_cursor": "eyJwIjp7ImsiOjQzM30sInMiOiI3In0", "has_more": True, "limit": 1, "total": None}})
+    data: list[Snapshot] = Field(description="Newest first")
+    pagination: Pagination

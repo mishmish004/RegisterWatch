@@ -393,16 +393,28 @@ Regenerate DDL so `current_<table>` views include `id` (and `first_seen_snapshot
 Add `CREATE INDEX ... (id) WHERE removed_snapshot_id IS NULL` per table (the PK covers
 it for the keyset; the partial index keeps the scan on current rows).
 `uv run registerwatch ddl --write`, mirror into `supabase/migrations/`.
+As built: the regenerated DDL is a new migration version, `20261007000007_register_schemas.sql`,
+not an edit of `…000005`: Supabase applies each version once, so an edited file would never
+reach it. `…000005` stays in `supabase/migrations/` as history; the package ships only the
+newest, which upgrades any older one because view columns are only ever appended (`id`,
+`first_seen_snapshot_id` go last, so `CREATE OR REPLACE VIEW` accepts them). Legacy row
+responses and `registerwatch rows` read the views with `SELECT *`, so they gain the two
+fields too (additive; their order and paging are unchanged).
 - T4.1.a `tests/test_schema.py` (DDL vs committed migration) passes.
-- T4.1.b **[pg]** `test_postgres.py` applies all migrations twice (idempotent) and `SELECT id FROM gb_ukgc.current_licences LIMIT 1` works.
-- T4.1.c **[pg]** `EXPLAIN (FORMAT JSON)` of the page query for `gb_ukgc.licences` with `WHERE id > $1 ORDER BY id LIMIT 100` shows an index scan, not a sort over the table.
+- T4.1.b **[pg]** `test_postgres.py` applies all migrations twice (idempotent) and `SELECT id FROM gb_ukgc.current_licences LIMIT 1` works. Also: `supabase/migrations/` applied in order to an empty database (the Supabase upgrade path) ends with the new views and index.
+- T4.1.c **[pg]** `EXPLAIN (FORMAT JSON)` of the page query for `gb_ukgc.licences` with `WHERE id > $1 ORDER BY id LIMIT 100` shows an index scan, not a sort over the table. As built: the query is the one `query.row_page` actually sends; at the latest snapshot it uses the partial index, and read as of an older snapshot (below) the primary key.
 
 **P4.2 Cursor pagination for rows.**
 Implement the cursor in 2.3. Filters move to `filter[<column>]=<value>` (FastAPI: parse
 `request.query_params` keys matching `^filter\[([a-z][a-z0-9_]*)\]$`); any other unknown
 query parameter is a 400 `invalid-parameter`.
+As built: the cursor holds the last `id` and the snapshot the first page was read at, and
+every later page reads the table as of that snapshot (`first_seen ≤ s < removed`), so a walk
+is exactly one snapshot even when an ingest lands mid-walk. Its tag is a checksum over the
+query and the position, so a cursor from another query or with any byte altered is a 400.
+The `Link` target is a path-absolute reference (`</v1/...?cursor=...>`), like the `url` fields.
 - T4.2.a **[pg]** Walk every page of `gb_ukgc.licences` with `limit=37`: the union of ids equals `SELECT id FROM current_licences`, no duplicates, no gaps.
-- T4.2.b **[pg]** Walk half the pages, run an ingest that adds 3 rows and removes 2 (the existing three-run engine test data), finish the walk: no row returned twice, no row present in both snapshots skipped.
+- T4.2.b **[pg]** Walk half the pages, run an ingest that adds 3 rows and removes 2 (the existing three-run engine test data), finish the walk: no row returned twice, no row present in both snapshots skipped. As built: the ingest is its write step (`observations.apply` with a new complete snapshot) on the loaded 399-row table, since the engine's test data has 4 licence rows; the finished walk equals the starting snapshot exactly, and a fresh walk shows the new one.
 - T4.2.c A cursor reused with a different `filter[...]` → 400 `invalid-cursor`. A cursor with a flipped byte → 400 `invalid-cursor`.
 - T4.2.d `?status=Active` (old style) on a v1 route → 400 naming `status` and suggesting `filter[status]`.
 - T4.2.e `Link: <...>; rel="next"` present iff `has_more`.
@@ -411,7 +423,10 @@ query parameter is a 400 `invalid-parameter`.
 **P4.3 Change feed.**
 `/v1/registers/{slug}/changes` and `/v1/jurisdictions/{code}/changes` return the flat
 event list, cursor on `(snapshot_id, id, change)`. Baseline snapshot excluded, as today.
-- T4.3.a **[pg]** After the engine's three-run test: the feed since run 1 returns exactly 1 `added` and 1 `removed` event, in snapshot order.
+As built: the order and cursor are `(snapshot_id, register, table, id, change)`, since ids are
+per table; within a snapshot a changed row's `removed` comes first (the old row's id is lower).
+`since`/`until` bound the recorded time, both optional, `until > since`.
+- T4.3.a **[pg]** After the engine's three-run test: the feed since run 1 returns exactly ~~1 `added` and 1 `removed` event~~ run 2's 2 `added` and 2 `removed` events (it revokes 103 and renumbers 102, each a removal plus an addition; the count first written here was wrong), in snapshot order.
 - T4.3.b **[pg]** With 2,500 synthetic changes and `limit=1000`: three pages, `has_more` true, true, false; 2,500 events total (F4 regression test).
 - T4.3.c Jurisdiction feed for `ch` interleaves `ch_esbk` and `ch_gespa` events in `(snapshot_id, id)` order.
 - T4.3.d `GET /v1/registers/gb_ukgc/changes?since=2026-10-01T00:00:00` (naive) → 400; with `Z` → 200 (moved here from T3.2.b).
@@ -420,6 +435,8 @@ event list, cursor on `(snapshot_id, id, change)`. Baseline snapshot excluded, a
 `/v1/search` returns one hit per table with `total` and the first `limit` rows, plus a
 `rows_url` for the full, paged result (`.../rows?q=...`). Tables are searched with one
 `UNION ALL` query per register rather than two queries per table.
+As built: `rows_url` adds `include_total=true`, so its `total` is there to compare. Legacy
+`/search` keeps its per-table queries until it is removed.
 - T4.4.a Query count per `/v1/search` call (instrumented via a psycopg connection wrapper in the test) ≤ number of registers searched.
 - T4.4.b Every `rows_url` in a search response returns 200 and the same `total`.
 

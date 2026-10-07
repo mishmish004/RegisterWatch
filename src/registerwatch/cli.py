@@ -29,7 +29,11 @@ from registerwatch import __version__, jurisdictions
 from registerwatch.config import settings
 
 MIGRATIONS = files("registerwatch") / "migrations"
-SCHEMA_MIGRATION = "20261004000005_register_schemas.sql"
+# The generated register DDL. A schema change gets a new file (and this name):
+# Supabase applies each migration version once, so editing an applied file would
+# never reach it. Older versions stay in supabase/migrations as history; the
+# package ships only the newest, which is idempotent over any older one.
+SCHEMA_MIGRATION = "20261007000007_register_schemas.sql"
 OPENAPI_SPEC = pathlib.Path("openapi") / "v1.yaml"  # relative to a source checkout
 SOURCE_ROOT = pathlib.Path(__file__).resolve().parents[2]  # only meaningful in a source checkout
 

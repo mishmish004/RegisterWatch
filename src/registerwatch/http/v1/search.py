@@ -30,11 +30,12 @@ def search(
 ) -> SearchHitPage:
     regs = registers_for(jurisdiction)
     with connection() as conn:
-        hits = query.search(conn, q, regs, limit=limit)
+        hits = query.search_tables(conn, q, regs, limit=limit)
     data = [SearchHit(
         jurisdiction=h["jurisdiction"], register_=h["register"], regulator=h["regulator"], kind=h["kind"],
         table=h["table"], total=h["total"],
         rows=[Row.of(table_of(h["register"], h["table"]), r) for r in h["rows"]],
-        rows_url=f"/v1/registers/{h['register']}/tables/{h['table']}/rows?{urlencode({'q': q})}",
+        rows_url=f"/v1/registers/{h['register']}/tables/{h['table']}/rows?"
+                 + urlencode({"q": q, "include_total": "true"}),
     ) for h in hits]
     return SearchHitPage(data=data, pagination=Pagination.whole(data))

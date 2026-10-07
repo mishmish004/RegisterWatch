@@ -128,7 +128,7 @@ def test_schema_examples_validate_against_their_schemas():
 
 # Path parameters that name a resource, so an unknown value is a 404. `domain` is a
 # lookup key: any hostname has a status, possibly empty.
-RESOURCE_IDS = {"code", "slug", "table"}
+RESOURCE_IDS = {"code", "slug", "table", "id"}
 
 
 def test_error_responses_documented():
@@ -169,18 +169,23 @@ def test_no_v1_operation_is_pinned_in_the_baseline():
 # --- the app, wired for generated traffic ------------------------------------------
 
 class _Result:
-    """What the fake connection answers to anything: no rows, zero counts."""
+    """What the fake connection answers to anything: no rows, zero counts, and
+    no row for a lookup of one (`SELECT * ... WHERE id = ...`)."""
+
+    def __init__(self, one=True):
+        self.one = one
 
     def fetchone(self):
-        return {"n": 0, "id": None}
+        return {"n": 0, "id": None} if self.one else None
 
     def fetchall(self):
         return []
 
 
 class _FakeConn:
-    def execute(self, *_a, **_k):
-        return _Result()
+    def execute(self, query, *_a, **_k):
+        text = query if isinstance(query, str) else query.as_string(None)
+        return _Result(one=not (text.startswith("SELECT * FROM") and "WHERE id =" in text))
 
 
 @pytest.fixture(scope="module")

@@ -163,3 +163,196 @@ def changes(conn: Connection, register: Register, since: datetime, *, limit: int
         if added or removed:
             out[t.name] = {"added": added, "removed": removed}
     return {"register": register.slug, "since": since, "tables": out}
+
+
+# --- API v1: keyed pages, the change feed, snapshot history ---------------------
+#
+# v1 pages are keyed on each row's `id` (insertion order, never reused) and read
+# as of one snapshot, so a walk that spans an ingest neither repeats nor skips a
+# row: the cursor carries the snapshot the first page was read at.
+
+HISTORY = ("id", "first_seen_snapshot_id", "last_seen_snapshot_id", "removed_snapshot_id",
+           "first_seen_at", "last_seen_at", "removed_at")
+
+
+def latest_snapshot_id(conn: Connection, register: Register) -> int:
+    """The register's newest complete snapshot, or 0 when it has none."""
+    row = conn.execute("SELECT max(r.id) AS id FROM raw_snapshots r JOIN sources s ON s.id = r.source_id "
+                       "WHERE s.slug = %s AND r.complete", (register.slug,)).fetchone()
+    return (row or {}).get("id") or 0
+
+
+def _as_of(snapshot_id: int, latest: int) -> tuple[sql.Composable, list[Any]]:
+    """Rows of the table as it was at `snapshot_id`. At the latest snapshot that
+    is just the current rows, which the partial index on `id` serves."""
+    if snapshot_id >= latest:
+        return sql.SQL("removed_snapshot_id IS NULL"), []
+    return (sql.SQL("first_seen_snapshot_id <= %s AND (removed_snapshot_id IS NULL OR removed_snapshot_id > %s)"),
+            [snapshot_id, snapshot_id])
+
+
+def _where(register: Register, table: Table, q: str | None, filters: dict[str, str] | None,
+           snapshot_id: int, latest: int) -> tuple[sql.Composable, list[Any]]:
+    clause, params = _as_of(snapshot_id, latest)
+    where: list[sql.Composable] = [clause]
+    for col, val in (filters or {}).items():
+        if col not in table.column_names:
+            raise ValueError(f"unknown column {col!r} for {register.slug}.{table.name}; "
+                             f"columns: {', '.join(table.column_names)}")
+        where.append(sql.SQL("{}::text = %s").format(sql.Identifier(col)))
+        params.append(val)
+    if q:
+        match, ps = _text_match(table, q)
+        where.append(match)
+        params += ps
+    return sql.SQL(" WHERE ") + sql.SQL(" AND ").join(where), params
+
+
+def row_page(conn: Connection, register: Register, table: Table, *, snapshot_id: int, latest: int,
+             after: int = 0, limit: int = 100, q: str | None = None,
+             filters: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    """Up to `limit` + 1 rows with `id > after`, in id order (the extra one says
+    whether there is another page)."""
+    where, params = _where(register, table, q, filters, snapshot_id, latest)
+    return conn.execute(
+        sql.SQL("SELECT * FROM {}").format(sql.Identifier(register.slug, table.name)) + where
+        + sql.SQL(" AND id > %s ORDER BY id LIMIT %s"), [*params, after, limit + 1]).fetchall()
+
+
+def count_rows(conn: Connection, register: Register, table: Table, *, snapshot_id: int, latest: int,
+               q: str | None = None, filters: dict[str, str] | None = None) -> int:
+    where, params = _where(register, table, q, filters, snapshot_id, latest)
+    return conn.execute(sql.SQL("SELECT count(*) AS n FROM {}").format(sql.Identifier(register.slug, table.name))
+                        + where, params).fetchone()["n"]
+
+
+def get_row(conn: Connection, register: Register, table: Table, row_id: int) -> dict[str, Any] | None:
+    """One row by id, current or not, with its history."""
+    return conn.execute(sql.SQL("SELECT * FROM {} WHERE id = %s").format(sql.Identifier(register.slug, table.name)),
+                        (row_id,)).fetchone()
+
+
+# A change feed position: (snapshot_id, register, table, id, change). Snapshot ids
+# are global, so the order interleaves registers by when their snapshots landed.
+FeedKey = tuple[int, str, str, int, str]
+
+
+def change_feed(conn: Connection, registers: list[Register], *, since: datetime | None = None,
+                until: datetime | None = None, after: FeedKey | None = None,
+                limit: int = 100) -> list[dict[str, Any]]:
+    """Up to `limit` + 1 row additions and removals across `registers`, oldest
+    first. A register's first complete snapshot is its baseline, not a change."""
+    import heapq
+
+    baselines = {r["slug"]: r["id"] for r in conn.execute(
+        "SELECT s.slug, min(r.id) AS id FROM sources s JOIN raw_snapshots r ON r.source_id = s.id AND r.complete "
+        "WHERE s.slug = ANY(%s) GROUP BY s.slug", ([r.slug for r in registers],)).fetchall()}
+    streams = []
+    for reg in registers:
+        if reg.slug not in baselines:
+            continue
+        for t in reg.tables:
+            streams.append(_table_changes(conn, reg, t, baselines[reg.slug], since, until, after, limit))
+    out = []
+    for event in heapq.merge(*streams, key=lambda e: e["key"]):
+        out.append(event)
+        if len(out) > limit:
+            break
+    return out
+
+
+def _table_changes(conn: Connection, register: Register, table: Table, baseline: int,
+                   since: datetime | None, until: datetime | None, after: FeedKey | None,
+                   limit: int) -> list[dict[str, Any]]:
+    tbl = sql.Identifier(register.slug, table.name)
+    branches, params = [], []
+    sides = (("added", "first_seen_snapshot_id", "first_seen_at", "first_seen_snapshot_id <> %s"),
+             ("removed", "removed_snapshot_id", "removed_at", "removed_snapshot_id IS NOT NULL"))
+    for change, snap, at, extra in sides:
+        conds = [sql.SQL(extra)]
+        ps: list[Any] = [baseline] if change == "added" else []
+        if since:
+            conds.append(sql.SQL("{} >= %s").format(sql.Identifier(at)))
+            ps.append(since)
+        if until:
+            conds.append(sql.SQL("{} < %s").format(sql.Identifier(at)))
+            ps.append(until)
+        if after:
+            # Everything at or past the cursor's snapshot; the exact cut is made below.
+            conds.append(sql.SQL("{} >= %s").format(sql.Identifier(snap)))
+            ps.append(after[0])
+        branches.append(sql.SQL("SELECT %s::text AS change, {snap} AS snapshot_id, {at} AS at, t.* FROM {t} t WHERE ")
+                        .format(snap=sql.Identifier(snap), at=sql.Identifier(at), t=tbl)
+                        + sql.SQL(" AND ").join(conds))
+        params += [change, *ps]
+    query = sql.SQL("SELECT * FROM (") + sql.SQL(" UNION ALL ").join(branches) + sql.SQL(") e")
+    if after:
+        # Past the cursor in (snapshot_id, register, table, id, change) order. This
+        # stream's register and table are fixed, so compare them here, in Python's
+        # order (the merge's), rather than in a collation-dependent SQL comparison.
+        here, there = (register.slug, table.name), (after[1], after[2])
+        same = sql.SQL("TRUE") if here > there else sql.SQL("FALSE") if here < there else \
+            sql.SQL("(id, change) > (%s, %s)")
+        query += sql.SQL(" WHERE snapshot_id > %s OR (snapshot_id = %s AND ") + same + sql.SQL(")")
+        params += [after[0], after[0], *([after[3], after[4]] if here == there else [])]
+    query += sql.SQL(" ORDER BY snapshot_id, id, change LIMIT %s")
+    params.append(limit + 1)
+    rows = conn.execute(query, params).fetchall()
+    return [{"key": (r["snapshot_id"], register.slug, table.name, r["id"], r["change"]), "register": register,
+             "table": table, **r} for r in rows]
+
+
+def search_tables(conn: Connection, q: str, registers: list[Register], *, limit: int = 20) -> list[dict[str, Any]]:
+    """Every table with at least one current row matching `q`: its total and its
+    first `limit` rows by id. One query per register, most matches first."""
+    hits: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in registers:
+        branches, params = [], []
+        for t in r.tables:
+            match, ps = _text_match(t, q)
+            if not ps:
+                continue
+            values = sql.SQL(", ").join(sql.SQL("{}, t.{}").format(sql.Literal(c), sql.Identifier(c))
+                                        for c in t.column_names)
+            branches.append(
+                sql.SQL("SELECT {name}::text AS tbl, t.id, t.first_seen_snapshot_id, t.first_seen_at, t.last_seen_at, "
+                        "jsonb_build_object({values}) AS vals FROM {t} t WHERE removed_snapshot_id IS NULL AND ")
+                .format(name=sql.Literal(t.name), values=values, t=sql.Identifier(r.slug, t.name)) + match)
+            params += ps
+        if not branches:
+            continue
+        query = (sql.SQL("SELECT * FROM (SELECT m.*, count(*) OVER w AS total, row_number() OVER (w ORDER BY id) AS rn "
+                         "FROM (") + sql.SQL(" UNION ALL ").join(branches)
+                 + sql.SQL(") m WINDOW w AS (PARTITION BY tbl)) x WHERE rn <= %s ORDER BY tbl, id"))
+        for row in conn.execute(query, [*params, limit]).fetchall():
+            table = next(t for t in r.tables if t.name == row["tbl"])
+            hit = hits.setdefault((r.slug, table.name), {
+                "jurisdiction": jurisdictions.normalise(r.country), "register": r.slug, "regulator": r.regulator,
+                "kind": r.kind, "table": table.name, "total": row["total"], "rows": []})
+            hit["rows"].append({**_typed(table, row["vals"]), **{k: row[k] for k in HISTORY if k in row}})
+    return sorted(hits.values(), key=lambda h: (-h["total"], h["register"], h["table"]))
+
+
+def _typed(table: Table, values: dict[str, Any]) -> dict[str, Any]:
+    """jsonb gives dates and timestamps back as text; restore what a plain SELECT gives."""
+    from datetime import date
+
+    out = dict(values)
+    for c in table.columns:
+        v = out.get(c.name)
+        if isinstance(v, str) and c.type == "date":
+            out[c.name] = date.fromisoformat(v)
+        elif isinstance(v, str) and c.type == "timestamptz":
+            out[c.name] = datetime.fromisoformat(v)
+    return out
+
+
+def snapshot_page(conn: Connection, register: Register, *, before: int | None = None,
+                  limit: int = 100) -> list[dict[str, Any]]:
+    """Every recorded run of the register, complete or not, newest first:
+    up to `limit` + 1 with `id < before`."""
+    return conn.execute(
+        "SELECT r.id, r.fetched_at, r.run_started_at, r.complete, r.incomplete_reason, r.record_count, "
+        "r.http_status, r.pages_expected, r.pages_ok FROM raw_snapshots r JOIN sources s ON s.id = r.source_id "
+        "WHERE s.slug = %s AND r.id < %s ORDER BY r.id DESC LIMIT %s",
+        (register.slug, before or 2**63 - 1, limit + 1)).fetchall()

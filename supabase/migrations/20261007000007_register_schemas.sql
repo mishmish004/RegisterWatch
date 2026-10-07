@@ -31,8 +31,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS providers_current_row
 CREATE INDEX IF NOT EXISTS providers_first_seen ON au_acma.providers (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS providers_removed
   ON au_acma.providers (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS providers_current_id
+  ON au_acma.providers (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW au_acma.current_providers AS
-  SELECT trading_name, licence_holder, url, licensing_authority, host, first_seen_at, last_seen_at
+  SELECT trading_name, licence_holder, url, licensing_authority, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM au_acma.providers WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE au_acma.providers IS 'providers';
 
@@ -73,8 +75,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS online_licences_current_row
 CREATE INDEX IF NOT EXISTS online_licences_first_seen ON be_gc.online_licences (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS online_licences_removed
   ON be_gc.online_licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS online_licences_current_id
+  ON be_gc.online_licences (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW be_gc.current_online_licences AS
-  SELECT licence_class, dossier_id, establishment, operator, website, host, decision_date, publication_date, expiration_date, first_seen_at, last_seen_at
+  SELECT licence_class, dossier_id, establishment, operator, website, host, decision_date, publication_date, expiration_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM be_gc.online_licences WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE be_gc.online_licences IS 'A+, B+ and F1+ licences: one row per licensed website';
 
@@ -117,8 +121,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS establishments_current_row
 CREATE INDEX IF NOT EXISTS establishments_first_seen ON be_gc.establishments (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS establishments_removed
   ON be_gc.establishments (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS establishments_current_id
+  ON be_gc.establishments (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW be_gc.current_establishments AS
-  SELECT licence_class, dossier_id, establishment, owner, street_address_nl, street_address_fr, postal_code, commune, province, decision_date, publication_date, expiration_date, first_seen_at, last_seen_at
+  SELECT licence_class, dossier_id, establishment, owner, street_address_nl, street_address_fr, postal_code, commune, province, decision_date, publication_date, expiration_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM be_gc.establishments WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE be_gc.establishments IS 'Physical licences: casinos, arcades, betting shops, cafés…';
 
@@ -147,8 +153,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS operators_current_row
 CREATE INDEX IF NOT EXISTS operators_first_seen ON ca_kgc.operators (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS operators_removed
   ON ca_kgc.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS operators_current_id
+  ON ca_kgc.operators (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ca_kgc.current_operators AS
-  SELECT operator, url, host, first_seen_at, last_seen_at
+  SELECT operator, url, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ca_kgc.operators WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ca_kgc.operators IS 'operators';
 
@@ -169,8 +177,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS software_providers_current_row
 CREATE INDEX IF NOT EXISTS software_providers_first_seen ON ca_kgc.software_providers (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS software_providers_removed
   ON ca_kgc.software_providers (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS software_providers_current_id
+  ON ca_kgc.software_providers (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ca_kgc.current_software_providers AS
-  SELECT name, first_seen_at, last_seen_at
+  SELECT name, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ca_kgc.software_providers WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ca_kgc.software_providers IS 'software_providers';
 
@@ -203,8 +213,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS brands_current_row
 CREATE INDEX IF NOT EXISTS brands_first_seen ON ca_on_igo.brands (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS brands_removed
   ON ca_on_igo.brands (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS brands_current_id
+  ON ca_on_igo.brands (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ca_on_igo.current_brands AS
-  SELECT brand, website, host, offerings, link_text, first_seen_at, last_seen_at
+  SELECT brand, website, host, offerings, link_text, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ca_on_igo.brands WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ca_on_igo.brands IS 'brands';
 
@@ -231,8 +243,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS blocked_domains_current_row
 CREATE INDEX IF NOT EXISTS blocked_domains_first_seen ON ch_esbk.blocked_domains (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON ch_esbk.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_current_id
+  ON ch_esbk.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ch_esbk.current_blocked_domains AS
-  SELECT domain, listed_on, first_seen_at, last_seen_at
+  SELECT domain, listed_on, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ch_esbk.blocked_domains WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ch_esbk.blocked_domains IS 'blocked_domains';
 
@@ -259,8 +273,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS blocked_domains_current_row
 CREATE INDEX IF NOT EXISTS blocked_domains_first_seen ON ch_gespa.blocked_domains (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON ch_gespa.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_current_id
+  ON ch_gespa.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ch_gespa.current_blocked_domains AS
-  SELECT domain, well_formed, first_seen_at, last_seen_at
+  SELECT domain, well_formed, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ch_gespa.blocked_domains WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ch_gespa.blocked_domains IS 'blocked_domains';
 
@@ -289,8 +305,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS operators_current_row
 CREATE INDEX IF NOT EXISTS operators_first_seen ON cz_mf.operators (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS operators_removed
   ON cz_mf.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS operators_current_id
+  ON cz_mf.operators (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW cz_mf.current_operators AS
-  SELECT operator, company_id, seat, first_seen_at, last_seen_at
+  SELECT operator, company_id, seat, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM cz_mf.operators WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE cz_mf.operators IS 'operators';
 
@@ -323,8 +341,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS permits_current_row
 CREATE INDEX IF NOT EXISTS permits_first_seen ON cz_mf.permits (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS permits_removed
   ON cz_mf.permits (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS permits_current_id
+  ON cz_mf.permits (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW cz_mf.current_permits AS
-  SELECT operator, game_type, channel, final_on, effective_on, domains, hosts, first_seen_at, last_seen_at
+  SELECT operator, game_type, channel, final_on, effective_on, domains, hosts, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM cz_mf.permits WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE cz_mf.permits IS 'One row per operator × game type × channel; final_on = právní moc';
 
@@ -361,8 +381,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS permits_current_row
 CREATE INDEX IF NOT EXISTS permits_first_seen ON de_ggl.permits (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS permits_removed
   ON de_ggl.permits (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS permits_current_id
+  ON de_ggl.permits (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW de_ggl.current_permits AS
-  SELECT operator, gambling_type, address, distribution_channel, sales_area, authority, locations, first_seen_at, last_seen_at
+  SELECT operator, gambling_type, address, distribution_channel, sales_area, authority, locations, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM de_ggl.permits WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE de_ggl.permits IS 'One row per operator and gambling-type permit';
 
@@ -393,8 +415,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS websites_current_row
 CREATE INDEX IF NOT EXISTS websites_first_seen ON de_ggl.websites (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS websites_removed
   ON de_ggl.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS websites_current_id
+  ON de_ggl.websites (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW de_ggl.current_websites AS
-  SELECT operator, gambling_type, website, host, first_permit_date, renewal_date, first_seen_at, last_seen_at
+  SELECT operator, gambling_type, website, host, first_permit_date, renewal_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM de_ggl.websites WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE de_ggl.websites IS 'Websites covered by each permit';
 
@@ -425,8 +449,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS operators_current_row
 CREATE INDEX IF NOT EXISTS operators_first_seen ON ee_emta.operators (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS operators_removed
   ON ee_emta.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS operators_current_id
+  ON ee_emta.operators (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ee_emta.current_operators AS
-  SELECT subtype, operator, brand, register_url, first_seen_at, last_seen_at
+  SELECT subtype, operator, brand, register_url, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ee_emta.operators WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ee_emta.operators IS 'operators';
 
@@ -453,8 +479,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS websites_current_row
 CREATE INDEX IF NOT EXISTS websites_first_seen ON ee_emta.websites (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS websites_removed
   ON ee_emta.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS websites_current_id
+  ON ee_emta.websites (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ee_emta.current_websites AS
-  SELECT subtype, operator, website, host, first_seen_at, last_seen_at
+  SELECT subtype, operator, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ee_emta.websites WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ee_emta.websites IS 'websites';
 
@@ -481,8 +509,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS operators_current_row
 CREATE INDEX IF NOT EXISTS operators_first_seen ON es_dgoj.operators (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS operators_removed
   ON es_dgoj.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS operators_current_id
+  ON es_dgoj.operators (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW es_dgoj.current_operators AS
-  SELECT operator, detail_url, first_seen_at, last_seen_at
+  SELECT operator, detail_url, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM es_dgoj.operators WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE es_dgoj.operators IS 'operators';
 
@@ -507,8 +537,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS websites_current_row
 CREATE INDEX IF NOT EXISTS websites_first_seen ON es_dgoj.websites (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS websites_removed
   ON es_dgoj.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS websites_current_id
+  ON es_dgoj.websites (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW es_dgoj.current_websites AS
-  SELECT operator, website, host, first_seen_at, last_seen_at
+  SELECT operator, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM es_dgoj.websites WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE es_dgoj.websites IS 'websites';
 
@@ -535,8 +567,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS operators_current_row
 CREATE INDEX IF NOT EXISTS operators_first_seen ON fr_anj.operators (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS operators_removed
   ON fr_anj.operators (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS operators_current_id
+  ON fr_anj.operators (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW fr_anj.current_operators AS
-  SELECT operator, categories, first_seen_at, last_seen_at
+  SELECT operator, categories, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM fr_anj.operators WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE fr_anj.operators IS 'operators';
 
@@ -561,8 +595,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS websites_current_row
 CREATE INDEX IF NOT EXISTS websites_first_seen ON fr_anj.websites (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS websites_removed
   ON fr_anj.websites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS websites_current_id
+  ON fr_anj.websites (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW fr_anj.current_websites AS
-  SELECT operator, website, host, first_seen_at, last_seen_at
+  SELECT operator, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM fr_anj.websites WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE fr_anj.websites IS 'websites';
 
@@ -589,8 +625,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS businesses_current_row
 CREATE INDEX IF NOT EXISTS businesses_first_seen ON gb_ukgc.businesses (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS businesses_removed
   ON gb_ukgc.businesses (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS businesses_current_id
+  ON gb_ukgc.businesses (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_businesses AS
-  SELECT account_number, licence_account_name, first_seen_at, last_seen_at
+  SELECT account_number, licence_account_name, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.businesses WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE gb_ukgc.businesses IS 'Licensed businesses (accounts)';
 
@@ -623,8 +661,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS licences_current_row
 CREATE INDEX IF NOT EXISTS licences_first_seen ON gb_ukgc.licences (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS licences_removed
   ON gb_ukgc.licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS licences_current_id
+  ON gb_ukgc.licences (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_licences AS
-  SELECT account_number, licence_number, status, type, activity, start_date, end_date, first_seen_at, last_seen_at
+  SELECT account_number, licence_number, status, type, activity, start_date, end_date, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.licences WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE gb_ukgc.licences IS 'One row per licence and activity; licence_number''s last segment is a version';
 
@@ -649,8 +689,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS trading_names_current_row
 CREATE INDEX IF NOT EXISTS trading_names_first_seen ON gb_ukgc.trading_names (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS trading_names_removed
   ON gb_ukgc.trading_names (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS trading_names_current_id
+  ON gb_ukgc.trading_names (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_trading_names AS
-  SELECT account_number, trading_name, status, first_seen_at, last_seen_at
+  SELECT account_number, trading_name, status, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.trading_names WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE gb_ukgc.trading_names IS 'trading_names';
 
@@ -677,8 +719,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS domain_names_current_row
 CREATE INDEX IF NOT EXISTS domain_names_first_seen ON gb_ukgc.domain_names (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS domain_names_removed
   ON gb_ukgc.domain_names (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS domain_names_current_id
+  ON gb_ukgc.domain_names (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gb_ukgc.current_domain_names AS
-  SELECT account_number, domain_name, status, host, first_seen_at, last_seen_at
+  SELECT account_number, domain_name, status, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gb_ukgc.domain_names WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE gb_ukgc.domain_names IS 'domain_name is free text as published; host is the parsed hostname or NULL';
 
@@ -705,8 +749,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS licensees_current_row
 CREATE INDEX IF NOT EXISTS licensees_first_seen ON gr_hgc.licensees (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS licensees_removed
   ON gr_hgc.licensees (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS licensees_current_id
+  ON gr_hgc.licensees (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW gr_hgc.current_licensees AS
-  SELECT company, licence_type, first_seen_at, last_seen_at
+  SELECT company, licence_type, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM gr_hgc.licensees WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE gr_hgc.licensees IS 'licensees';
 
@@ -743,8 +789,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS gaming_licences_current_row
 CREATE INDEX IF NOT EXISTS gaming_licences_first_seen ON ie_revenue.gaming_licences (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS gaming_licences_removed
   ON ie_revenue.gaming_licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS gaming_licences_current_id
+  ON ie_revenue.gaming_licences (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ie_revenue.current_gaming_licences AS
-  SELECT licence_ref, licence_type, licensee_name, trading_name, relevant_officer, premises_address, principal_office_address, first_seen_at, last_seen_at
+  SELECT licence_ref, licence_type, licensee_name, trading_name, relevant_officer, premises_address, principal_office_address, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ie_revenue.gaming_licences WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ie_revenue.gaming_licences IS 'gaming_licences';
 
@@ -775,8 +823,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS bookmakers_current_row
 CREATE INDEX IF NOT EXISTS bookmakers_first_seen ON ie_revenue.bookmakers (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS bookmakers_removed
   ON ie_revenue.bookmakers (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS bookmakers_current_id
+  ON ie_revenue.bookmakers (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW ie_revenue.current_bookmakers AS
-  SELECT licence_ref, licensee_name, trading_name, relevant_officer, place_of_business, county, first_seen_at, last_seen_at
+  SELECT licence_ref, licensee_name, trading_name, relevant_officer, place_of_business, county, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM ie_revenue.bookmakers WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE ie_revenue.bookmakers IS 'bookmakers';
 
@@ -809,8 +859,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS licensees_current_row
 CREATE INDEX IF NOT EXISTS licensees_first_seen ON im_gsc.licensees (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS licensees_removed
   ON im_gsc.licensees (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS licensees_current_id
+  ON im_gsc.licensees (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW im_gsc.current_licensees AS
-  SELECT company, status, valid_from, valid_to, licence_type, first_seen_at, last_seen_at
+  SELECT company, status, valid_from, valid_to, licence_type, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM im_gsc.licensees WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE im_gsc.licensees IS 'valid_to is text: the register writes ''Current''';
 
@@ -835,8 +887,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS domains_current_row
 CREATE INDEX IF NOT EXISTS domains_first_seen ON im_gsc.domains (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS domains_removed
   ON im_gsc.domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS domains_current_id
+  ON im_gsc.domains (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW im_gsc.current_domains AS
-  SELECT company, domain, host, first_seen_at, last_seen_at
+  SELECT company, domain, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM im_gsc.domains WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE im_gsc.domains IS 'domains';
 
@@ -863,8 +917,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS licence_holders_current_row
 CREATE INDEX IF NOT EXISTS licence_holders_first_seen ON im_gsc.licence_holders (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS licence_holders_removed
   ON im_gsc.licence_holders (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS licence_holders_current_id
+  ON im_gsc.licence_holders (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW im_gsc.current_licence_holders AS
-  SELECT name, firm_status, initial_licence_date, licence_type, first_seen_at, last_seen_at
+  SELECT name, firm_status, initial_licence_date, licence_type, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM im_gsc.licence_holders WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE im_gsc.licence_holders IS 'The dated XLSX the page links';
 
@@ -891,8 +947,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS blocked_domains_current_row
 CREATE INDEX IF NOT EXISTS blocked_domains_first_seen ON it_adm.blocked_domains (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON it_adm.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_current_id
+  ON it_adm.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW it_adm.current_blocked_domains AS
-  SELECT domain, well_formed, first_seen_at, last_seen_at
+  SELECT domain, well_formed, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM it_adm.blocked_domains WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE it_adm.blocked_domains IS 'blocked_domains';
 
@@ -923,8 +981,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS blocked_domains_current_row
 CREATE INDEX IF NOT EXISTS blocked_domains_first_seen ON pl_mf.blocked_domains (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS blocked_domains_removed
   ON pl_mf.blocked_domains (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS blocked_domains_current_id
+  ON pl_mf.blocked_domains (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW pl_mf.current_blocked_domains AS
-  SELECT entry_no, domain, added_at_local, added_on, first_seen_at, last_seen_at
+  SELECT entry_no, domain, added_at_local, added_on, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM pl_mf.blocked_domains WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE pl_mf.blocked_domains IS 'blocked_domains';
 
@@ -959,8 +1019,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS brands_current_row
 CREATE INDEX IF NOT EXISTS brands_first_seen ON pt_srij.brands (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS brands_removed
   ON pt_srij.brands (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS brands_current_id
+  ON pt_srij.brands (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW pt_srij.current_brands AS
-  SELECT block_id, title, brand, website, host, operator, first_seen_at, last_seen_at
+  SELECT block_id, title, brand, website, host, operator, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM pt_srij.brands WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE pt_srij.brands IS 'brands';
 
@@ -1029,8 +1091,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS licences_current_row
 CREATE INDEX IF NOT EXISTS licences_first_seen ON se_si.licences (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS licences_removed
   ON se_si.licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS licences_current_id
+  ON se_si.licences (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW se_si.current_licences AS
-  SELECT address_1, address_2, operator, shop_id, redeemer_id, country, valid_from, valid_to, licence_type, note, note_type, note_url, site_address_1, site_address_2, site_country, site_name, site_postcode, site_city, postcode, city, status, website, host, first_seen_at, last_seen_at
+  SELECT address_1, address_2, operator, shop_id, redeemer_id, country, valid_from, valid_to, licence_type, note, note_type, note_url, site_address_1, site_address_2, site_country, site_name, site_postcode, site_city, postcode, city, status, website, host, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM se_si.licences WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE se_si.licences IS 'Every licence, land-based and online; one row per licence/site';
 
@@ -1069,8 +1133,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS licences_current_row
 CREATE INDEX IF NOT EXISTS licences_first_seen ON sk_urhh.licences (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS licences_removed
   ON sk_urhh.licences (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS licences_current_id
+  ON sk_urhh.licences (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW sk_urhh.current_licences AS
-  SELECT seq, company, company_id, valid_from, valid_to, game_name, game_codes, game_types, first_seen_at, last_seen_at
+  SELECT seq, company, company_id, valid_from, valid_to, game_name, game_codes, game_types, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM sk_urhh.licences WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE sk_urhh.licences IS 'licences';
 
@@ -1101,7 +1167,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS internet_gaming_sites_current_row
 CREATE INDEX IF NOT EXISTS internet_gaming_sites_first_seen ON us_nj_dge.internet_gaming_sites (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS internet_gaming_sites_removed
   ON us_nj_dge.internet_gaming_sites (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS internet_gaming_sites_current_id
+  ON us_nj_dge.internet_gaming_sites (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW us_nj_dge.current_internet_gaming_sites AS
-  SELECT licensee, site, host, status, first_seen_at, last_seen_at
+  SELECT licensee, site, host, status, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM us_nj_dge.internet_gaming_sites WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE us_nj_dge.internet_gaming_sites IS 'internet_gaming_sites';

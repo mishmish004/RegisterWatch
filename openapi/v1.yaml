@@ -89,6 +89,95 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /v1/jurisdictions/{code}/changes:
+    get:
+      tags:
+      - changes
+      summary: Rows added and removed across a jurisdiction's registers, oldest first
+      description: Registers interleave by when their snapshots were recorded. Each register's first complete
+        snapshot is its baseline, not a change.
+      operationId: listJurisdictionChanges
+      parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+          description: 'Jurisdiction code, any case, `-` or `_`: `gb`, `US-NJ`, `ca_on`'
+          examples:
+          - ch
+          title: Code
+        description: 'Jurisdiction code, any case, `-` or `_`: `gb`, `US-NJ`, `ca_on`'
+      - name: since
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          description: Only changes recorded at or after this RFC 3339 time, with an offset (`2026-10-01T00:00:00Z`)
+          title: Since
+        description: Only changes recorded at or after this RFC 3339 time, with an offset (`2026-10-01T00:00:00Z`)
+      - name: until
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          description: Only changes recorded before this time; after `since`
+          title: Until
+        description: Only changes recorded before this time; after `since`
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          description: Page size
+          default: 100
+          title: Limit
+        description: Page size
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`next_cursor` from the previous page'
+          title: Cursor
+        description: '`next_cursor` from the previous page'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /v1/registers:
     get:
       tags:
@@ -224,6 +313,8 @@ paths:
       tags:
       - rows
       summary: List a table's current rows
+      description: Rows in `id` order. Every page of one walk is read as of the snapshot the first page
+        was, so an ingest during the walk neither repeats nor skips a row.
       operationId: listRows
       parameters:
       - name: slug
@@ -265,8 +356,10 @@ paths:
           type: integer
           maximum: 1000
           minimum: 1
+          description: Page size
           default: 100
           title: Limit
+        description: Page size
       - name: cursor
         in: query
         required: false
@@ -312,6 +405,226 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/RowPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/registers/{slug}/tables/{table}/rows/{id}:
+    get:
+      tags:
+      - rows
+      summary: Get one row, current or not, with its history
+      operationId: getRow
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Register slug, e.g. `gb_ukgc`
+          examples:
+          - gb_ukgc
+          title: Slug
+        description: Register slug, e.g. `gb_ukgc`
+      - name: table
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Table name within the register
+          examples:
+          - licences
+          title: Table
+        description: Table name within the register
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: integer
+          maximum: 9223372036854775807
+          minimum: 1
+          description: The row's `id`
+          examples:
+          - 1187
+          title: Id
+        description: The row's `id`
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RowDetail'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/registers/{slug}/changes:
+    get:
+      tags:
+      - changes
+      summary: Rows added and removed in a register, oldest first
+      description: 'The register''s first complete snapshot is its baseline, not a change. Never truncated:
+        follow `next_cursor` until `has_more` is false.'
+      operationId: listRegisterChanges
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Register slug, e.g. `gb_ukgc`
+          examples:
+          - gb_ukgc
+          title: Slug
+        description: Register slug, e.g. `gb_ukgc`
+      - name: since
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          description: Only changes recorded at or after this RFC 3339 time, with an offset (`2026-10-01T00:00:00Z`)
+          title: Since
+        description: Only changes recorded at or after this RFC 3339 time, with an offset (`2026-10-01T00:00:00Z`)
+      - name: until
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          description: Only changes recorded before this time; after `since`
+          title: Until
+        description: Only changes recorded before this time; after `since`
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          description: Page size
+          default: 100
+          title: Limit
+        description: Page size
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`next_cursor` from the previous page'
+          title: Cursor
+        description: '`next_cursor` from the previous page'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /v1/registers/{slug}/snapshots:
+    get:
+      tags:
+      - registers
+      summary: Every ingest run of a register, complete or not, newest first
+      operationId: listSnapshots
+      parameters:
+      - name: slug
+        in: path
+        required: true
+        schema:
+          type: string
+          description: Register slug, e.g. `gb_ukgc`
+          examples:
+          - gb_ukgc
+          title: Slug
+        description: Register slug, e.g. `gb_ukgc`
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 1000
+          minimum: 1
+          description: Page size
+          default: 100
+          title: Limit
+        description: Page size
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          description: '`next_cursor` from the previous page'
+          title: Cursor
+        description: '`next_cursor` from the previous page'
+      - name: authorization
+        in: header
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Authorization
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SnapshotPage'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -939,6 +1252,84 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
 components:
   schemas:
+    ChangeEvent:
+      properties:
+        change:
+          type: string
+          enum:
+          - added
+          - removed
+          title: Change
+          description: A changed row is one `removed` and one `added`
+        at:
+          type: string
+          format: date-time
+          title: At
+          description: When the snapshot that made the change was recorded
+        snapshot_id:
+          type: integer
+          title: Snapshot Id
+        register:
+          type: string
+          title: Register
+          description: Register slug, also its Postgres schema
+        table:
+          type: string
+          title: Table
+        row:
+          $ref: '#/components/schemas/Row'
+      type: object
+      required:
+      - change
+      - at
+      - snapshot_id
+      - register
+      - table
+      - row
+      title: ChangeEvent
+      examples:
+      - &id001
+        change: removed
+        at: '2026-10-07T06:00:44Z'
+        snapshot_id: 431
+        register: gb_ukgc
+        table: licences
+        row:
+          id: 1187
+          first_seen_snapshot_id: 412
+          first_seen_at: '2026-10-05T06:01:12Z'
+          last_seen_at: '2026-10-07T06:00:41Z'
+          values:
+            account_number: '102'
+            licence_number: 000102-N-000000-000
+            status: Active
+            type: Non-Remote
+            activity: Bingo
+            start_date: null
+            end_date: null
+    ChangePage:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/ChangeEvent'
+          type: array
+          title: Data
+          description: 'Oldest first: by snapshot, then table, row id, change'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      type: object
+      required:
+      - data
+      - pagination
+      title: ChangePage
+      examples:
+      - data:
+        - *id001
+        pagination:
+          next_cursor: eyJwIjp7ImsiOls0MzEsImdiX3VrZ2MiLCJsaWNlbmNlcyIsMTE4NywicmVtb3ZlZCJdfSwicyI6IjEyIn0
+          has_more: true
+          limit: 1
+          total: null
     Column:
       properties:
         name:
@@ -1011,7 +1402,7 @@ components:
       - row
       title: DomainMatch
       examples:
-      - &id001
+      - &id002
         jurisdiction: US-NJ
         register: us_nj_dge
         regulator: New Jersey Division of Gaming Enforcement
@@ -1019,6 +1410,8 @@ components:
         table: internet_gaming_sites
         match: subdomain
         row:
+          id: 9
+          first_seen_snapshot_id: 405
           first_seen_at: '2026-10-05T06:01:12Z'
           last_seen_at: '2026-10-07T06:00:41Z'
           values:
@@ -1063,7 +1456,7 @@ components:
         blocked_in:
         - CH
         matches:
-        - *id001
+        - *id002
     Freshness:
       properties:
         last_attempt_at:
@@ -1137,7 +1530,7 @@ components:
       - registers
       title: Jurisdiction
       examples:
-      - &id002
+      - &id003
         code: CH
         name: Switzerland
         url: /v1/jurisdictions/ch
@@ -1190,7 +1583,7 @@ components:
           homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
           url: /v1/registers/ch_esbk
           tables:
-          - &id003
+          - &id004
             register: ch_esbk
             name: blocked_domains
             description: null
@@ -1220,7 +1613,7 @@ components:
       title: JurisdictionPage
       examples:
       - data:
-        - *id002
+        - *id003
         pagination:
           next_cursor: null
           has_more: false
@@ -1302,7 +1695,7 @@ components:
       - tables
       title: Register
       examples:
-      - &id004
+      - &id005
         slug: ch_esbk
         jurisdiction: CH
         regulator: Eidgenössische Spielbankenkommission (ESBK)
@@ -1311,7 +1704,7 @@ components:
         homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
         url: /v1/registers/ch_esbk
         tables:
-        - *id003
+        - *id004
     RegisterDetail:
       properties:
         slug:
@@ -1369,7 +1762,7 @@ components:
         homepage: https://www.esbk.admin.ch/en/unauthorised-online-games
         url: /v1/registers/ch_esbk
         tables:
-        - *id003
+        - *id004
         freshness:
           last_attempt_at: '2026-10-07T06:00:41Z'
           last_good_at: '2026-10-07T06:00:41Z'
@@ -1391,7 +1784,7 @@ components:
       title: RegisterPage
       examples:
       - data:
-        - *id004
+        - *id005
         pagination:
           next_cursor: null
           has_more: false
@@ -1438,6 +1831,15 @@ components:
         url: /v1/registers/gb_ukgc
     Row:
       properties:
+        id:
+          type: integer
+          title: Id
+          description: Stable for as long as the row is unchanged; a changed row is a new row (and the
+            old one is removed). Pages are keyed on it
+        first_seen_snapshot_id:
+          type: integer
+          title: First Seen Snapshot Id
+          description: The complete snapshot that first contained this row
         first_seen_at:
           type: string
           format: date-time
@@ -1468,15 +1870,19 @@ components:
           description: The register's own columns, as published; keys are the table's declared columns
       type: object
       required:
+      - id
+      - first_seen_snapshot_id
       - first_seen_at
       - last_seen_at
       - values
       title: Row
       examples:
-      - &id005
+      - &id007
+        id: 1187
+        first_seen_snapshot_id: 412
         first_seen_at: '2026-10-05T06:01:12Z'
         last_seen_at: '2026-10-07T06:00:41Z'
-        values:
+        values: &id006
           account_number: '102'
           licence_number: 000102-N-000000-000
           status: Pending
@@ -1484,6 +1890,92 @@ components:
           activity: Bingo
           start_date: null
           end_date: null
+    RowDetail:
+      properties:
+        id:
+          type: integer
+          title: Id
+          description: Stable for as long as the row is unchanged; a changed row is a new row (and the
+            old one is removed). Pages are keyed on it
+        first_seen_snapshot_id:
+          type: integer
+          title: First Seen Snapshot Id
+          description: The complete snapshot that first contained this row
+        first_seen_at:
+          type: string
+          format: date-time
+          title: First Seen At
+          description: When the first complete snapshot containing this row was recorded
+        last_seen_at:
+          type: string
+          format: date-time
+          title: Last Seen At
+          description: When the newest complete snapshot still containing it was recorded
+        values:
+          additionalProperties:
+            anyOf:
+            - type: string
+            - type: integer
+            - type: number
+            - type: boolean
+            - type: string
+              format: date-time
+            - type: string
+              format: date
+            - items:
+                type: string
+              type: array
+            - type: 'null'
+          type: object
+          title: Values
+          description: The register's own columns, as published; keys are the table's declared columns
+        last_seen_snapshot_id:
+          type: integer
+          title: Last Seen Snapshot Id
+          description: The newest complete snapshot that still contained it
+        removed_snapshot_id:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Removed Snapshot Id
+          description: The first complete snapshot without it; null while current
+        removed_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Removed At
+        current:
+          type: boolean
+          title: Current
+          description: In the register's latest complete snapshot
+        url:
+          type: string
+          title: Url
+      type: object
+      required:
+      - id
+      - first_seen_snapshot_id
+      - first_seen_at
+      - last_seen_at
+      - values
+      - last_seen_snapshot_id
+      - removed_snapshot_id
+      - removed_at
+      - current
+      - url
+      title: RowDetail
+      examples:
+      - id: 1187
+        first_seen_snapshot_id: 412
+        first_seen_at: '2026-10-05T06:01:12Z'
+        last_seen_at: '2026-10-07T06:00:41Z'
+        values: *id006
+        last_seen_snapshot_id: 431
+        removed_snapshot_id: null
+        removed_at: null
+        current: true
+        url: /v1/registers/gb_ukgc/tables/licences/rows/1187
     RowPage:
       properties:
         data:
@@ -1500,7 +1992,7 @@ components:
       title: RowPage
       examples:
       - data:
-        - *id005
+        - *id007
         pagination:
           next_cursor: eyJwIjp7Im8iOjF9LCJzIjoiYjk0YzQ3YjNiYzNkZTE2NyJ9
           has_more: true
@@ -1540,7 +2032,7 @@ components:
         rows_url:
           type: string
           title: Rows Url
-          description: Every match in this table, paged
+          description: Every match in this table, paged, with the same `total`
       type: object
       required:
       - jurisdiction
@@ -1553,7 +2045,7 @@ components:
       - rows_url
       title: SearchHit
       examples:
-      - &id006
+      - &id008
         jurisdiction: CH
         register: ch_esbk
         regulator: Eidgenössische Spielbankenkommission (ESBK)
@@ -1561,12 +2053,14 @@ components:
         table: blocked_domains
         total: 1
         rows:
-        - first_seen_at: '2026-10-05T06:01:12Z'
+        - id: 77
+          first_seen_snapshot_id: 410
+          first_seen_at: '2026-10-05T06:01:12Z'
           last_seen_at: '2026-10-07T06:00:41Z'
           values:
             domain: 0101b00merang-bet.com
             listed_on: '2026-08-25'
-        rows_url: /v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang
+        rows_url: /v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang&include_total=true
     SearchHitPage:
       properties:
         data:
@@ -1584,12 +2078,102 @@ components:
       title: SearchHitPage
       examples:
       - data:
-        - *id006
+        - *id008
         pagination:
           next_cursor: null
           has_more: false
           limit: 1
           total: 1
+    Snapshot:
+      properties:
+        id:
+          type: integer
+          title: Id
+        register:
+          type: string
+          title: Register
+          description: Register slug, also its Postgres schema
+        run_started_at:
+          type: string
+          format: date-time
+          title: Run Started At
+        fetched_at:
+          type: string
+          format: date-time
+          title: Fetched At
+        complete:
+          type: boolean
+          title: Complete
+          description: Only complete snapshots change the register's rows
+        incomplete_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Incomplete Reason
+          description: Why it was not complete; null when it was
+        record_count:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Record Count
+        http_status:
+          type: integer
+          title: Http Status
+          description: The worst final status across the run's requests
+        pages_expected:
+          type: integer
+          title: Pages Expected
+        pages_ok:
+          type: integer
+          title: Pages Ok
+      type: object
+      required:
+      - id
+      - register
+      - run_started_at
+      - fetched_at
+      - complete
+      - incomplete_reason
+      - record_count
+      - http_status
+      - pages_expected
+      - pages_ok
+      title: Snapshot
+      examples:
+      - &id009
+        id: 433
+        register: gb_ukgc
+        run_started_at: '2026-10-07T06:00:02Z'
+        fetched_at: '2026-10-07T06:00:41Z'
+        complete: false
+        incomplete_reason: PAGE_GAP:3/4 licences:HTTP_503
+        record_count: null
+        http_status: 503
+        pages_expected: 4
+        pages_ok: 3
+    SnapshotPage:
+      properties:
+        data:
+          items:
+            $ref: '#/components/schemas/Snapshot'
+          type: array
+          title: Data
+          description: Newest first
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+      type: object
+      required:
+      - data
+      - pagination
+      title: SnapshotPage
+      examples:
+      - data:
+        - *id009
+        pagination:
+          next_cursor: eyJwIjp7ImsiOjQzM30sInMiOiI3In0
+          has_more: true
+          limit: 1
+          total: null
     TableSchema:
       properties:
         register:
@@ -1807,7 +2391,7 @@ components:
             detail: 60 requests per minute for /v1/search; retry in 12 s
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
-      headers: &id007
+      headers: &id010
         Retry-After:
           description: Seconds to wait before retrying
           schema:
@@ -1838,4 +2422,4 @@ components:
             detail: the database cannot be reached right now; retry shortly
             instance: /v1/registers/gb_ukgc/tables/licences/rows
             request_id: 0199c1a8-7c3e-7a52-9d1e-5b6f0c2a4e11
-      headers: *id007
+      headers: *id010

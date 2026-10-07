@@ -33,7 +33,7 @@ ROWS = "/v1/registers/gb_ukgc/tables/licences/rows"
 
 # Raised by a patch until the named phase adds the feature that raises it.
 LATER = {
-    Catalog.FORBIDDEN: "P6", Catalog.ROW_NOT_FOUND: "P4", Catalog.INGEST_RUN_NOT_FOUND: "P5",
+    Catalog.FORBIDDEN: "P6", Catalog.INGEST_RUN_NOT_FOUND: "P5",
     Catalog.INGEST_IN_PROGRESS: "P5", Catalog.UNSUPPORTED_MEDIA_TYPE: "P5",
     Catalog.IDEMPOTENCY_KEY_REUSED: "P5", Catalog.RATE_LIMITED: "P7", Catalog.INGEST_DISABLED: "P5",
 }
@@ -47,7 +47,10 @@ def client(monkeypatch):
     monkeypatch.setattr(deps, "tx", lambda: contextlib.nullcontext(None))
     monkeypatch.setattr(api, "tx", lambda: contextlib.nullcontext(None))
     monkeypatch.setattr(deps.repo, "source_health", lambda conn: [])
-    monkeypatch.setattr(api.query, "rows", lambda conn, reg, tbl, **kw: {"total": 0, "rows": []})
+    monkeypatch.setattr(api.query, "rows", lambda conn, reg, tbl, **kw: {"total": 0, "rows": []})  # legacy
+    monkeypatch.setattr(api.query, "latest_snapshot_id", lambda conn, reg: 0)
+    monkeypatch.setattr(api.query, "row_page", lambda conn, reg, tbl, **kw: [])
+    monkeypatch.setattr(api.query, "get_row", lambda conn, reg, tbl, row_id: None)
     with TestClient(api.app) as c:
         c.cfg = cfg
         yield c
@@ -82,16 +85,18 @@ def _trigger(entry: Catalog, client, monkeypatch) -> tuple[str, str]:
             return "GET", "/v1/registers/xx_nope"
         case Catalog.TABLE_NOT_FOUND:
             return "GET", "/v1/registers/gb_ukgc/tables/nope"
+        case Catalog.ROW_NOT_FOUND:
+            return "GET", ROWS + "/999"
         case Catalog.METHOD_NOT_ALLOWED:
             return "POST", "/v1/registers"
         case Catalog.INTERNAL:
-            monkeypatch.setattr(api.query, "rows", _raise(RuntimeError("secret internals in /srv/app.py")))
+            monkeypatch.setattr(api.query, "row_page", _raise(RuntimeError("secret internals in /srv/app.py")))
             return "GET", ROWS
         case Catalog.DATABASE_UNAVAILABLE:
             monkeypatch.setattr(deps, "tx", _raise(PoolTimeout("couldn't get a connection after 30.00 sec")))
             return "GET", ROWS
         case Catalog.QUERY_TIMEOUT:
-            monkeypatch.setattr(api.query, "rows", _raise(psycopg.errors.QueryCanceled("canceling statement")))
+            monkeypatch.setattr(api.query, "row_page", _raise(psycopg.errors.QueryCanceled("canceling statement")))
             return "GET", ROWS
     raise AssertionError(f"no trigger for {entry}")
 
@@ -137,7 +142,7 @@ def test_legacy_routes_keep_their_error_shape(client):
 # --- T3.1.b ------------------------------------------------------------------------
 
 def test_an_unhandled_error_leaks_nothing_and_is_logged_with_its_request_id(client, monkeypatch, caplog):
-    monkeypatch.setattr(api.query, "rows", _raise(RuntimeError("secret internals in /srv/app.py")))
+    monkeypatch.setattr(api.query, "row_page", _raise(RuntimeError("secret internals in /srv/app.py")))
     with caplog.at_level(logging.ERROR, logger="registerwatch.http.problems"):
         r = client.get(ROWS, headers={"X-Request-Id": "t31b"})
     assert r.status_code == 500 and r.json()["type"].endswith("#internal")

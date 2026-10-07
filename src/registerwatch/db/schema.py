@@ -12,7 +12,9 @@ Every register table has the same history columns in front of its own:
 So storage grows with changes, not with days, and "what changed on the 3rd" is
 `WHERE first_seen_snapshot_id = x OR removed_snapshot_id = x` — the differ
 falls out of the storage model. `current_<table>` views show the register as of
-its latest complete snapshot.
+its latest complete snapshot; they end with `id` and `first_seen_snapshot_id`,
+the stable key API pages are keyed on. New view columns only ever go at the
+end, so `CREATE OR REPLACE VIEW` can upgrade a view an older migration made.
 
 The DDL is idempotent: CREATE ... IF NOT EXISTS, and ADD COLUMN IF NOT EXISTS
 for every declared column, so a register that gains a column migrates forward
@@ -62,8 +64,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS {table.name}_current_row
 CREATE INDEX IF NOT EXISTS {table.name}_first_seen ON {schema}.{table.name} (first_seen_snapshot_id);
 CREATE INDEX IF NOT EXISTS {table.name}_removed
   ON {schema}.{table.name} (removed_snapshot_id) WHERE removed_snapshot_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS {table.name}_current_id
+  ON {schema}.{table.name} (id) WHERE removed_snapshot_id IS NULL;
 CREATE OR REPLACE VIEW {schema}.current_{table.name} AS
-  SELECT {view_cols}, first_seen_at, last_seen_at
+  SELECT {view_cols}, first_seen_at, last_seen_at, id, first_seen_snapshot_id
     FROM {schema}.{table.name} WHERE removed_snapshot_id IS NULL;
 COMMENT ON TABLE {schema}.{table.name} IS {_lit(table.description or table.name)};
 """

@@ -18,8 +18,9 @@ from registerwatch.registers import REGISTRY
 NOW = datetime(2026, 10, 7, 6, 0, 41, tzinfo=timezone.utc)
 
 
-def _row(**values):
-    return {**values, "first_seen_at": NOW - timedelta(days=2), "last_seen_at": NOW}
+def _row(id=1, **values):
+    return {**values, "id": id, "first_seen_snapshot_id": 7, "first_seen_at": NOW - timedelta(days=2),
+            "last_seen_at": NOW}
 
 
 @pytest.fixture
@@ -95,36 +96,40 @@ def test_a_table_lists_its_typed_columns(client):
 
 @pytest.fixture
 def rows(client, monkeypatch):
-    """A fake table of 5 rows behind query.rows, honouring limit and offset."""
+    """A fake table of 5 rows (ids 10, 20, ... 50) behind the keyed page query."""
     calls = []
-    table = [_row(account_number=str(i), licence_number=f"00010{i}-N-000000-000", status="Active", type=None,
-                  activity="Bingo", start_date=None, end_date=None) for i in range(5)]
+    table = [_row(id=10 * (i + 1), account_number=str(i), licence_number=f"00010{i}-N-000000-000",
+                  status="Active", type=None, activity="Bingo", start_date=None, end_date=None) for i in range(5)]
 
-    def fake_rows(conn, reg, tbl, *, q=None, filters=None, limit=100, offset=0):
-        if filters and set(filters) - set(tbl.column_names):
-            raise ValueError("unknown column")
-        calls.append({"q": q, "filters": filters, "limit": limit, "offset": offset})
-        return {"total": len(table), "rows": table[offset:offset + limit]}
+    def fake_page(conn, reg, tbl, *, snapshot_id, latest, after=0, limit=100, q=None, filters=None):
+        calls.append({"q": q, "filters": filters, "limit": limit, "after": after, "snapshot_id": snapshot_id})
+        return [r for r in table if r["id"] > after][:limit + 1]
 
-    monkeypatch.setattr(api.query, "rows", fake_rows)
+    monkeypatch.setattr(api.query, "latest_snapshot_id", lambda conn, reg: 7)
+    monkeypatch.setattr(api.query, "row_page", fake_page)
+    monkeypatch.setattr(api.query, "count_rows", lambda conn, reg, tbl, **kw: len(table))
     client.calls = calls
     return client
 
 
 def test_rows_come_in_pages_linked_by_an_opaque_cursor(rows):
     url = "/v1/registers/gb_ukgc/tables/licences/rows?limit=2&filter[status]=Active"
-    seen, page, n = [], rows.get(url).json(), 1
+    seen, r, n = [], rows.get(url), 1
     while True:
-        seen += [r["values"]["account_number"] for r in page["data"]]
+        page = r.json()
+        seen += [row["values"]["account_number"] for row in page["data"]]
         assert page["pagination"]["limit"] == 2 and page["pagination"]["total"] is None
         if not page["pagination"]["has_more"]:
-            assert page["pagination"]["next_cursor"] is None
+            assert page["pagination"]["next_cursor"] is None and "link" not in r.headers  # T4.2.e
             break
-        page, n = rows.get(url + "&cursor=" + page["pagination"]["next_cursor"]).json(), n + 1
+        nxt = page["pagination"]["next_cursor"]
+        assert r.headers["link"] == f'<{url.split("?")[0]}?limit=2&filter%5Bstatus%5D=Active&cursor={nxt}>; rel="next"'
+        r, n = rows.get(url + "&cursor=" + nxt), n + 1
     assert seen == ["0", "1", "2", "3", "4"] and n == 3
-    assert all(c["filters"] == {"status": "Active"} for c in rows.calls)
+    assert [c["after"] for c in rows.calls] == [0, 20, 40]  # keyed on id, not an offset
+    assert all(c["filters"] == {"status": "Active"} and c["snapshot_id"] == 7 for c in rows.calls)
     first = rows.get(url).json()["data"][0]
-    assert set(first) == {"first_seen_at", "last_seen_at", "values"}
+    assert set(first) == {"id", "first_seen_snapshot_id", "first_seen_at", "last_seen_at", "values"}
     assert set(first["values"]) == {c.name for c in REGISTRY["gb_ukgc"].tables[1].columns}
 
 
@@ -132,12 +137,25 @@ def test_rows_total_only_when_asked(rows):
     assert rows.get("/v1/registers/gb_ukgc/tables/licences/rows?include_total=true").json()["pagination"]["total"] == 5
 
 
-def test_a_cursor_only_pages_the_query_that_issued_it(rows):
+def test_a_cursor_only_pages_the_query_that_issued_it(rows):  # T4.2.c
+    import base64
+
     base = "/v1/registers/gb_ukgc/tables/licences/rows?limit=2"
     cur = rows.get(base + "&filter[status]=Active").json()["pagination"]["next_cursor"]
-    assert rows.get(base + "&filter[status]=Revoked&cursor=" + cur).status_code == 400
-    assert rows.get(base + "&cursor=" + cur[:-2] + "xx").status_code == 400
-    assert rows.get(base + "&cursor=not-a-cursor").status_code == 400
+    raw = base64.urlsafe_b64decode(cur + "=" * (-len(cur) % 4))
+    flipped = []  # the cursor with one bit flipped, at every byte
+    for i in range(len(raw)):
+        b = bytearray(raw)
+        b[i] ^= 0x01
+        token = base64.urlsafe_b64encode(bytes(b)).rstrip(b"=").decode()
+        flipped.append(base + "&filter[status]=Active&cursor=" + token)
+    for bad in [base + "&filter[status]=Revoked&cursor=" + cur, base + "&q=bingo&cursor=" + cur, *flipped,
+                base + "&cursor=" + cur[:-2] + "xx", base + "&cursor=not-a-cursor",
+                "/v1/registers/gb_ukgc/tables/businesses/rows?cursor=" + cur]:
+        r = rows.get(bad)
+        assert r.status_code == 400 and r.json()["type"].endswith("#invalid-cursor"), bad
+        assert r.json()["errors"][0]["field"] == "cursor"
+    assert rows.get(base + "&filter[status]=Active&cursor=" + cur).status_code == 200
 
 
 def test_rows_refuse_unknown_parameters_and_columns(rows):
@@ -154,18 +172,18 @@ def test_rows_refuse_unknown_parameters_and_columns(rows):
 
 
 def test_search_returns_one_hit_per_table_with_a_link_to_all_of_it(client, monkeypatch):
-    def fake_search(conn, q, regs, *, limit=20):
+    def fake_search(conn, q, regs, *, limit=20):  # query.search_tables
         assert {r.slug for r in regs} == {"ch_esbk", "ch_gespa", "gb_ukgc"}
         return [{"jurisdiction": "CH", "register": "ch_esbk", "table": "blocked_domains", "total": 3,
                  "regulator": "ESBK", "kind": "blocklist",
                  "rows": [_row(domain="0101b00merang-bet.com", listed_on=None)]}]
 
-    monkeypatch.setattr(api.query, "search", fake_search)
+    monkeypatch.setattr(api.query, "search_tables", fake_search)
     body = client.get("/v1/search?q=b00merang&jurisdiction=ch&jurisdiction=gb&jurisdiction=CH").json()
     hit = body["data"][0]
     assert hit["register"] == "ch_esbk" and hit["total"] == 3
     assert hit["rows"][0]["values"] == {"domain": "0101b00merang-bet.com", "listed_on": None}
-    assert hit["rows_url"] == "/v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang"
+    assert hit["rows_url"] == "/v1/registers/ch_esbk/tables/blocked_domains/rows?q=b00merang&include_total=true"
     assert client.get("/v1/search?q=b").status_code == 400
     # An unknown code in a filter is a bad parameter, not a missing resource.
     r = client.get("/v1/search?q=bet&jurisdiction=zz")

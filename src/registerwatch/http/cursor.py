@@ -2,8 +2,10 @@
 
 A cursor is base64url JSON, and clients must treat it as an opaque token: what
 is inside may change between releases without changing the contract. Each one
-is bound to the query that produced it (`scope`), so a cursor replayed with
-different filters is refused rather than silently paging a different result.
+carries a tag over the query that produced it (`scope`) and its own position,
+so a cursor replayed with different filters, or altered in any byte, is refused
+rather than silently paging a different result. The tag is a checksum, not a
+signature: a position is only a row id and a snapshot id, nothing to forge.
 """
 
 from __future__ import annotations
@@ -23,8 +25,12 @@ def scope_of(*parts: Any) -> str:
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
+def _tag(position: Any, scope: str) -> str:
+    return scope_of(scope, position)
+
+
 def encode(position: dict[str, Any], scope: str) -> str:
-    raw = json.dumps({"p": position, "s": scope}, separators=(",", ":")).encode()
+    raw = json.dumps({"p": position, "s": _tag(position, scope)}, separators=(",", ":")).encode()
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
 
@@ -35,6 +41,6 @@ def decode(token: str, scope: str) -> dict[str, Any]:
         position, got = body["p"], body["s"]
     except (ValueError, TypeError, KeyError) as exc:
         raise InvalidCursor("cursor is not one this API issued") from exc
-    if got != scope or not isinstance(position, dict):
-        raise InvalidCursor("cursor belongs to a different query; start again without it")
+    if not isinstance(position, dict) or got != _tag(position, scope):
+        raise InvalidCursor("cursor belongs to a different query, or was altered; start again without it")
     return position

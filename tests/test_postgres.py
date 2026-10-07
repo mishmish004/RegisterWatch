@@ -58,12 +58,46 @@ def test_every_register_schema_exists_with_its_tables_and_views(db):
 
 
 def test_the_ddl_is_idempotent(db):
+    """T4.1.b: every packaged migration applies twice over a migrated database,
+    and the views expose the stable key."""
+    from registerwatch.cli import SCHEMA_MIGRATION
     from registerwatch.db.schema import all_ddl
     from registerwatch.registers import all_registers
 
     with db() as c:
         c.execute(all_ddl(all_registers()))
-        c.execute((ROOT / "src" / "registerwatch" / "migrations" / "20261004000005_register_schemas.sql").read_text())
+        for _ in range(2):
+            for path in sorted((ROOT / "src" / "registerwatch" / "migrations").glob("*.sql")):
+                c.execute(path.read_text())
+        assert (ROOT / "src" / "registerwatch" / "migrations" / SCHEMA_MIGRATION).exists()
+        cols = [r["column_name"] for r in c.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'gb_ukgc' "
+            "AND table_name = 'current_licences' ORDER BY ordinal_position")]
+        assert cols[-2:] == ["id", "first_seen_snapshot_id"]
+        c.execute("SELECT id FROM gb_ukgc.current_licences LIMIT 1").fetchall()
+
+
+def test_supabase_migrations_upgrade_a_database_made_by_older_ones():
+    """Supabase applies each version once, in order: the newest register DDL must
+    upgrade the views and indexes an older version created (T4.1.b)."""
+    import psycopg
+
+    supabase = ROOT / "supabase" / "migrations"
+    # pg_cron/pg_net exist only on Supabase; that file schedules, it does not shape tables.
+    files = [p for p in sorted(supabase.glob("*.sql")) if "schedule" not in p.name]
+    with psycopg.connect(DSN, autocommit=True) as admin:
+        admin.execute("DROP DATABASE IF EXISTS rw_upgrade")
+        admin.execute("CREATE DATABASE rw_upgrade")
+    try:
+        with psycopg.connect(DSN.rsplit("/", 1)[0] + "/rw_upgrade", autocommit=True) as c:
+            for path in files:
+                c.execute(path.read_text())
+            n = c.execute("SELECT count(*) FROM pg_indexes WHERE indexname = 'licences_current_id'").fetchone()[0]
+            c.execute("SELECT id, first_seen_snapshot_id FROM gb_ukgc.current_licences LIMIT 1")
+        assert [p.name for p in files][-1].endswith("_register_schemas.sql") and n >= 1
+    finally:
+        with psycopg.connect(DSN, autocommit=True) as admin:
+            admin.execute("DROP DATABASE IF EXISTS rw_upgrade")
 
 
 def test_every_registers_real_rows_load_through_copy(db):
@@ -98,9 +132,12 @@ def _snapshot(c, source_id: int, complete: bool = True) -> int:
         canonical_hash=None, parsed=complete)
 
 
-def test_history_across_three_runs_through_the_engine(db, tmp_path, monkeypatch):
-    """The whole engine, real SQL, fake HTTP: a change is one removal plus one
-    insertion; an incomplete run changes nothing."""
+def three_engine_runs(db, store_dir, monkeypatch):
+    """gb_ukgc through the whole engine, real SQL, fake HTTP: a baseline, a run
+    that revokes 103 and renumbers 102's licence, then a run that fails (503).
+    Returns the three IngestResults."""
+    import hashlib
+
     from registerwatch.ingest import engine
     from registerwatch.registers import gb_ukgc
     from registerwatch.storage.blobs import LocalBlobs
@@ -113,27 +150,30 @@ def test_history_across_three_runs_through_the_engine(db, tmp_path, monkeypatch)
 
     def fake_fetch_one(client, req, budget, validators=None):
         status, body = responses[req.url]
-        import hashlib
         return te.Fetched(req, status, body, hashlib.sha256(body).digest() if body else None,
                           {"content-type": "text/csv"}, [{"url": req.url, "status_code": status}])
 
     monkeypatch.setattr(engine, "fetch_one", fake_fetch_one)
-    store = LocalBlobs(tmp_path)
+    store = LocalBlobs(store_dir)
     run = lambda: engine.ingest(gb_ukgc.REGISTER, store, force=True)  # noqa: E731
 
     first = run()
     assert first.complete, first.reason
-
-    # The register revokes 103 and renumbers 102's licence (version suffix).
     responses[te.LIC] = (200, te.LICENCES
                          .replace(b'"103","000103-R-100000-001","Active"', b'"103","000103-R-100000-001","Revoked"')
                          .replace(b"000102-N-317976-010", b"000102-N-317976-011"))
     second = run()
     assert second.complete and not second.unchanged
-
     responses[te.LIC] = (503, None)
     third = run()
     assert not third.complete
+    return first, second, third
+
+
+def test_history_across_three_runs_through_the_engine(db, tmp_path, monkeypatch):
+    """The whole engine, real SQL, fake HTTP: a change is one removal plus one
+    insertion; an incomplete run changes nothing."""
+    first, second, third = three_engine_runs(db, tmp_path, monkeypatch)
 
     with db() as c:
         rows = c.execute("SELECT licence_number, status, first_seen_snapshot_id AS f, removed_snapshot_id AS r "

@@ -108,9 +108,11 @@ export and a mass revocation look identical. After checking it, run
 ## Schemas
 
 `registerwatch ddl` prints the SQL. It is generated from the register modules
-and committed as `src/registerwatch/migrations/20261004000005_register_schemas.sql`
+and committed as `src/registerwatch/migrations/20261007000007_register_schemas.sql`
 (mirrored in `supabase/migrations/`), and a test
-fails if the two disagree. Each table has the register's own columns plus:
+fails if the two disagree. A schema change is a new file with a new version:
+Supabase applies each version once, so older versions stay in
+`supabase/migrations/` as history and the package ships only the newest. Each table has the register's own columns plus:
 
 | column | meaning |
 |---|---|
@@ -135,13 +137,16 @@ Reads are open unless `READ_TOKEN` is set; operations need `INGEST_TOKEN`.
 **v1** — being built under `/v1` ([plan.md](plan.md)); the routes below stay
 until it is complete. Same read token. Collections come as
 `{"data": [...], "pagination": {"next_cursor", "has_more", "limit", "total"}}`;
-pass `next_cursor` back as `cursor` for the next page.
+pass `next_cursor` back as `cursor` for the next page (also in a `Link: rel="next"` header).
 
 | | |
 |---|---|
 | `GET /v1/jurisdictions`, `/v1/jurisdictions/{code}` | codes, names, registers; the detail adds each register's freshness |
 | `GET /v1/registers`, `/v1/registers/{slug}`, `/v1/registers/{slug}/tables/{table}` | registers, tables, typed columns, freshness |
-| `GET /v1/registers/{slug}/tables/{table}/rows` | current rows. `filter[status]=Active`, `q`, `limit` (≤1000), `cursor`, `include_total` |
+| `GET /v1/registers/{slug}/tables/{table}/rows` | current rows in `id` order. `filter[status]=Active`, `q`, `limit` (≤1000), `cursor`, `include_total`; a walk reads one snapshot throughout |
+| `GET /v1/registers/{slug}/tables/{table}/rows/{id}` | one row, current or not, with its history |
+| `GET /v1/registers/{slug}/changes`, `/v1/jurisdictions/{code}/changes` | rows added and removed, oldest first, `since`/`until` (RFC 3339 with offset), never truncated |
+| `GET /v1/registers/{slug}/snapshots` | every ingest run, complete or not, newest first, with the reason when it was not |
 | `GET /v1/search?q=betway&jurisdiction=gb&jurisdiction=de` | one entry per table with a match, with a `rows_url` for all of them |
 | `GET /v1/domains/{domain}` | `licensed_in`, `blocked_in` and each matching row |
 
